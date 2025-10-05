@@ -25,15 +25,35 @@ RUN apk add --no-cache \
     wget \
     git \
     bash \
-    ca-certificates \
-    && wget -q https://dl.k8s.io/release/$(wget -qO- https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl -O /usr/local/bin/kubectl \
-    && chmod +x /usr/local/bin/kubectl \
-    && wget -q https://get.helm.sh/helm-v3.16.4-linux-amd64.tar.gz -O /tmp/helm.tar.gz \
+    ca-certificates
+
+# Set architecture variables for multi-platform builds
+ARG TARGETPLATFORM
+ARG TARGETOS
+ARG TARGETARCH
+
+# Install kubectl with proper architecture detection
+RUN case "${TARGETARCH}" in \
+    amd64) KUBECTL_ARCH=amd64 ;; \
+    arm64) KUBECTL_ARCH=arm64 ;; \
+    *) echo "Unsupported architecture: ${TARGETARCH}" && exit 1 ;; \
+    esac \
+    && wget -q https://dl.k8s.io/release/$(wget -qO- https://dl.k8s.io/release/stable.txt)/bin/linux/${KUBECTL_ARCH}/kubectl -O /usr/local/bin/kubectl \
+    && chmod +x /usr/local/bin/kubectl
+
+# Install helm with proper architecture detection  
+RUN case "${TARGETARCH}" in \
+    amd64) HELM_ARCH=amd64 ;; \
+    arm64) HELM_ARCH=arm64 ;; \
+    *) echo "Unsupported architecture: ${TARGETARCH}" && exit 1 ;; \
+    esac \
+    && wget -q https://get.helm.sh/helm-v3.16.4-linux-${HELM_ARCH}.tar.gz -O /tmp/helm.tar.gz \
     && tar -xzf /tmp/helm.tar.gz -C /tmp \
-    && mv /tmp/linux-amd64/helm /usr/local/bin/helm \
-    && rm -rf /tmp/helm.tar.gz /tmp/linux-amd64 \
-    && helm version \
-    && kubectl version --client
+    && mv /tmp/linux-${HELM_ARCH}/helm /usr/local/bin/helm \
+    && rm -rf /tmp/helm.tar.gz /tmp/linux-${HELM_ARCH}
+
+# Verify installations
+RUN helm version && kubectl version --client
 
 WORKDIR /app
 
