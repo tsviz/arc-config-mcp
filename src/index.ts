@@ -10,7 +10,7 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
-import express from 'express';
+import express, { Request, Response } from 'express';
 import cors from 'cors';
 import { config } from 'dotenv';
 import { createLogger, format, transports } from 'winston';
@@ -150,7 +150,7 @@ async function runHttpServer(port: number = 3000): Promise<void> {
     });
 
     // MCP endpoint
-    app.post('/mcp', async (req, res) => {
+    app.post('/mcp', async (req: Request, res: Response) => {
         try {
             const transport = new StreamableHTTPServerTransport({
                 sessionIdGenerator: undefined,
@@ -163,7 +163,7 @@ async function runHttpServer(port: number = 3000): Promise<void> {
 
             await server.connect(transport);
             await transport.handleRequest(req, res, req.body);
-        } catch (error) {
+        } catch (error: any) {
             logger.error('Error handling MCP request:', error);
             if (!res.headersSent) {
                 res.status(500).json({
@@ -180,7 +180,7 @@ async function runHttpServer(port: number = 3000): Promise<void> {
 
     app.listen(port, () => {
         logger.info(`ARC MCP Server running on http://localhost:${port}/mcp`);
-    }).on('error', (error) => {
+    }).on('error', (error: Error) => {
         logger.error('Server error:', error);
         process.exit(1);
     });
@@ -200,7 +200,7 @@ async function main(): Promise<void> {
         } else {
             await runStdioServer();
         }
-    } catch (error) {
+    } catch (error: any) {
         logger.error('Fatal error starting ARC MCP Server:', error);
         process.exit(1);
     }
