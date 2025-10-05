@@ -45,12 +45,13 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '18'
+          cache: 'npm'
       - uses: actions/download-artifact@v4
         with:
           name: build
           path: build/
-      - name: Install production dependencies
-        run: npm ci --only=production
+      - name: Install all dependencies
+        run: npm ci
       - name: Test Policy Engine
         run: |
           node --input-type=module -e "
