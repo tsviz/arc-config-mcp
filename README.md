@@ -789,13 +789,15 @@ export DEBUG=arc:*,mcp:*,k8s:*
 - **Documentation**: [docs/](./docs/)
 - **GitHub Issues**: [Create an issue](https://github.com/tsviz/arc-config-mcp/issues/new)
 - **Discussions**: [GitHub Discussions](https://github.com/tsviz/arc-config-mcp/discussions)
+- **Official ARC Docs**: [GitHub Actions Runner Controller](https://docs.github.com/en/actions/concepts/runners/actions-runner-controller)
 - **Security Issues**: security@tsviz.com
 
 ## 🎓 Learning Resources
 
 ### 📖 Essential Reading
 - [Model Context Protocol Specification](https://modelcontextprotocol.io/)
-- [GitHub Actions Runner Controller Documentation](https://github.com/actions/actions-runner-controller)
+- [GitHub Actions Runner Controller (Official Docs)](https://docs.github.com/en/actions/concepts/runners/actions-runner-controller)
+- [Actions Runner Controller Repository](https://github.com/actions/actions-runner-controller)
 - [Kubernetes Operator Pattern](https://kubernetes.io/docs/concepts/extend-kubernetes/operator/)
 
 ### 🎥 Video Tutorials
@@ -862,6 +864,7 @@ By contributing to this project, you agree that your contributions will be licen
 
 ### Community Projects
 - **[Actions Runner Controller](https://github.com/actions/actions-runner-controller)**: The core ARC project
+- **[GitHub ARC Official Docs](https://docs.github.com/en/actions/concepts/runners/actions-runner-controller)**: Official GitHub documentation
 - **[Model Context Protocol](https://modelcontextprotocol.io/)**: Protocol specification and tools
 - **[GitHub Copilot](https://github.com/features/copilot)**: AI pair programmer integration
 
