@@ -40,18 +40,20 @@ jobs:
 
       - name: ✅ Validate Policy Engine
         run: |
-          node -e "
-            const { ArcPolicyEngine } = require('./build/engines/policy-engine.js');
-            const engine = new ArcPolicyEngine();
-            console.log('✅ Policy Engine: ' + engine.getRules().length + ' rules loaded');
+          node --input-type=module -e "
+            import('./build/engines/policy-engine.js').then(({ ArcPolicyEngine }) => {
+              const engine = new ArcPolicyEngine();
+              console.log('✅ Policy Engine: ' + engine.getRules().length + ' rules loaded');
+            });
           "
 
       - name: ✅ Validate NL Parser
         run: |
-          node -e "
-            const { parseArcIntent } = require('./build/utils/nl-intent.js');
-            const result = parseArcIntent('Install ARC controller');
-            console.log('✅ NL Parser: Intent recognized as ' + result.intent);
+          node --input-type=module -e "
+            import('./build/utils/nl-intent.js').then(({ parseArcIntent }) => {
+              const result = parseArcIntent('Install ARC controller');
+              console.log('✅ NL Parser: Intent recognized as ' + result.intent);
+            });
           "
 
       - name: 📋 Upload artifacts

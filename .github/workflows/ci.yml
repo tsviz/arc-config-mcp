@@ -53,27 +53,29 @@ jobs:
         run: npm ci --only=production
       - name: Test Policy Engine
         run: |
-          node -e "
-            const { ArcPolicyEngine } = require('./build/engines/policy-engine.js');
-            const engine = new ArcPolicyEngine();
-            const rules = engine.getRules();
-            if (rules.length < 12) throw new Error('Expected at least 12 policy rules');
-            console.log('✅ Policy Engine validated with ' + rules.length + ' rules');
+          node --input-type=module -e "
+            import('./build/engines/policy-engine.js').then(({ ArcPolicyEngine }) => {
+              const engine = new ArcPolicyEngine();
+              const rules = engine.getRules();
+              if (rules.length < 12) throw new Error('Expected at least 12 policy rules');
+              console.log('✅ Policy Engine validated with ' + rules.length + ' rules');
+            });
           "
       - name: Test NL Parser
         run: |
-          node -e "
-            const { parseArcIntent } = require('./build/utils/nl-intent.js');
-            const testCases = [
-              'Install ARC controller',
-              'Scale runners to 5',
-              'Check compliance',
-              'List runner scale sets'
-            ];
-            testCases.forEach(cmd => {
-              const result = parseArcIntent(cmd);
-              if (result.intent === 'unknown') throw new Error('Failed to parse: ' + cmd);
-              console.log('✅ Parsed: ' + cmd + ' -> ' + result.intent);
+          node --input-type=module -e "
+            import('./build/utils/nl-intent.js').then(({ parseArcIntent }) => {
+              const testCases = [
+                'Install ARC controller',
+                'Scale runners to 5',
+                'Check compliance',
+                'List runner scale sets'
+              ];
+              testCases.forEach(cmd => {
+                const result = parseArcIntent(cmd);
+                if (result.intent === 'unknown') throw new Error('Failed to parse: ' + cmd);
+                console.log('✅ Parsed: ' + cmd + ' -> ' + result.intent);
+              });
             });
           "
 
