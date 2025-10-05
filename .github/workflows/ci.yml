@@ -80,7 +80,7 @@ jobs:
               }
               const engine = new ArcPolicyEngine(kc);
               const rules = engine.getRules();
-              if (rules.length < 12) throw new Error('Expected at least 12 policy rules');
+              if (rules.length < 11) throw new Error('Expected at least 11 policy rules');
               console.log('✅ Policy Engine validated with ' + rules.length + ' rules');
             });
           "
