@@ -4,6 +4,8 @@
 > 
 > A comprehensive TypeScript MCP (Model Context Protocol) server that transforms complex ARC operations into conversational AI interactions. Deploy, monitor, and manage GitHub Actions runners with natural language commands.
 
+> **🎯 QUICK START**: Add to your MCP client: `ghcr.io/tsviz/arc-config-mcp:latest` → Ask AI: *"Install ARC in my cluster"* → Done! ✨
+
 [![GitHub release](https://img.shields.io/github/release/tsviz/arc-config-mcp.svg)](https://github.com/tsviz/arc-config-mcp/releases)
 [![Docker Image](https://img.shields.io/badge/docker-ghcr.io%2Ftsviz%2Farc--config--mcp-blue)](https://ghcr.io/tsviz/arc-config-mcp)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
@@ -24,7 +26,37 @@ ARC Config MCP Server is an enterprise-grade automation tool that bridges the ga
 
 ## 🚀 Quick Start
 
-### Option 1: Docker (Recommended)
+### 🎯 MCP Client Integration (Recommended)
+
+**The primary way to use ARC Config MCP Server is through MCP client integration with AI assistants like GitHub Copilot in VSCode.**
+
+Add this configuration to your MCP client settings:
+
+```json
+{
+  "mcpServers": {
+    "arc-config": {
+      "command": "docker",
+      "args": [
+        "run", "-i", "--rm",
+        "-v", "${HOME}/.kube:/home/node/.kube:ro",
+        "-e", "GITHUB_TOKEN",
+        "ghcr.io/tsviz/arc-config-mcp:latest"
+      ]
+    }
+  }
+}
+```
+
+**✨ That's it!** Your AI assistant now has access to powerful ARC management capabilities. Simply ask natural language questions like:
+- *"Install ARC controller in my cluster"*
+- *"Scale my runners to handle more load"* 
+- *"Check why my runners are failing"*
+- *"Optimize costs for my GitHub Actions setup"*
+
+---
+
+### 🐳 Alternative: Docker Standalone
 ```bash
 # Pull and run the latest version
 docker run -p 3000:3000 ghcr.io/tsviz/arc-config-mcp:latest
@@ -37,19 +69,13 @@ docker run -p 3000:3000 \
   ghcr.io/tsviz/arc-config-mcp:latest
 ```
 
-### Option 2: Local Development
+### 🛠️ Alternative: Local Development
 ```bash
 git clone https://github.com/tsviz/arc-config-mcp.git
 cd arc-config-mcp
 npm install
 npm run build
-npm start
-```
-
-### Option 3: MCP Client Integration
-```bash
-# Direct MCP protocol connection
-npm start -- --stdio
+npm start -- --stdio  # For MCP protocol connection
 ```
 
 ## 🎭 Natural Language Examples
@@ -186,25 +212,10 @@ RETRY_ATTEMPTS=3
 
 ### VS Code + GitHub Copilot Integration
 
-1. **Install via MCP Settings**:
-   ```json
-   // In your MCP client configuration
-   {
-     "mcpServers": {
-       "arc-config": {
-         "command": "docker",
-         "args": [
-           "run", "-i", "--rm",
-           "-v", "${HOME}/.kube:/home/node/.kube:ro",
-           "-e", "GITHUB_TOKEN",
-           "ghcr.io/tsviz/arc-config-mcp:latest"
-         ]
-       }
-     }
-   }
-   ```
+1. **Configure MCP Server** (already shown above):
+   The JSON configuration from the Quick Start section works directly with VS Code + GitHub Copilot.
 
-2. **Configure GitHub Copilot**:
+2. **Enable MCP in GitHub Copilot**:
    Add to your VS Code settings:
    ```json
    {
@@ -214,6 +225,8 @@ RETRY_ATTEMPTS=3
      }
    }
    ```
+
+3. **Start using natural language commands** with GitHub Copilot to manage your ARC infrastructure!
 
 ### Production Deployment
 
