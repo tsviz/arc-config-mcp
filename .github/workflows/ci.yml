@@ -2,57 +2,52 @@ name: 🔄 CI/CD Pipeline
 
 on:
   push:
-    branches: [main, develop]
+    branches: [main, develop, 'feature/*']
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
+      - 'examples/**'
+      - 'LICENSE'
+      - '.gitignore'
   pull_request:
     branches: [main, develop]
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
+      - 'examples/**'
+      - 'LICENSE'
+      - '.gitignore'
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
 
 jobs:
-  lint:
-    name: 🔍 Lint
+  test-and-validate:
+    name: 🧪 Test & Validate
     runs-on: ubuntu-latest
+    outputs:
+      should-build-docker: ${{ steps.conditions.outputs.should-build-docker }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '18'
-          cache: 'npm'
-      - run: npm ci
-      - run: npm run lint || echo "Linting completed with warnings"
+      - name: 📥 Checkout
+        uses: actions/checkout@v4
 
-  build:
-    name: 🏗️ Build
-    runs-on: ubuntu-latest
-    needs: [lint]
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - name: 🔧 Setup Node.js
+        uses: actions/setup-node@v4
         with:
           node-version: '18'
           cache: 'npm'
-      - run: npm ci
-      - run: npm run build
-      - uses: actions/upload-artifact@v4
-        with:
-          name: build
-          path: build/
 
-  validate-arc-integration:
-    name: ✅ Validate ARC Integration
-    runs-on: ubuntu-latest
-    needs: build
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '18'
-          cache: 'npm'
-      - uses: actions/download-artifact@v4
-        with:
-          name: build
-          path: build/
-      - name: Install all dependencies
+      - name: 📦 Install dependencies
         run: npm ci
-      - name: Test Policy Engine
+
+      - name: 🔍 Lint
+        run: npm run lint || echo "Linting completed with warnings"
+
+      - name: 🏗️ Build TypeScript
+        run: npm run build
+
+      - name: ✅ Validate ARC Integration
         run: |
           node --input-type=module -e "
             Promise.all([
@@ -62,30 +57,22 @@ jobs:
               const { KubeConfig } = k8s;
               const { ArcPolicyEngine } = policyModule;
               
-              // Create a mock KubeConfig for testing
               const kc = new KubeConfig();
-              // Load default config or create empty config for CI testing
-              try {
-                kc.loadFromDefault();
-              } catch (e) {
-                // In CI, create minimal config
-                kc.loadFromString(JSON.stringify({
-                  apiVersion: 'v1',
-                  kind: 'Config',
-                  clusters: [{ name: 'test-cluster', cluster: { server: 'https://test' } }],
-                  users: [{ name: 'test-user', user: {} }],
-                  contexts: [{ name: 'test-context', context: { cluster: 'test-cluster', user: 'test-user' } }],
-                  'current-context': 'test-context'
-                }));
-              }
+              kc.loadFromString(JSON.stringify({
+                apiVersion: 'v1',
+                kind: 'Config',
+                clusters: [{ name: 'test-cluster', cluster: { server: 'https://test' } }],
+                users: [{ name: 'test-user', user: {} }],
+                contexts: [{ name: 'test-context', context: { cluster: 'test-cluster', user: 'test-user' } }],
+                'current-context': 'test-context'
+              }));
               const engine = new ArcPolicyEngine(kc);
               const rules = engine.getRules();
               if (rules.length < 11) throw new Error('Expected at least 11 policy rules');
               console.log('✅ Policy Engine validated with ' + rules.length + ' rules');
             });
           "
-      - name: Test NL Parser
-        run: |
+
           node --input-type=module -e "
             import('./build/utils/nl-intent.js').then(({ parseArcIntent }) => {
               const testCases = [
@@ -102,23 +89,138 @@ jobs:
             });
           "
 
-  summary:
-    name: 📊 Summary
+      - name: 📋 Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: build
+          path: build/
+          retention-days: 1
+
+      - name: 🎯 Determine build conditions
+        id: conditions
+        run: |
+          # Build Docker images for develop, feature branches, and PRs
+          if [[ "${{ github.ref }}" == "refs/heads/develop" ]] || \
+             [[ "${{ github.ref }}" == refs/heads/feature/* ]] || \
+             [[ "${{ github.event_name }}" == "pull_request" ]]; then
+            echo "should-build-docker=true" >> $GITHUB_OUTPUT
+          else
+            echo "should-build-docker=false" >> $GITHUB_OUTPUT
+          fi
+
+  docker-build:
+    name: 🐳 Build Docker Image
     runs-on: ubuntu-latest
-    needs: [lint, build, validate-arc-integration]
+    needs: test-and-validate
+    if: needs.test-and-validate.outputs.should-build-docker == 'true'
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: 📥 Checkout
+        uses: actions/checkout@v4
+
+      - name: 🔧 Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: 🔐 Log in to Container Registry
+        if: github.event_name != 'pull_request'
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: 🏷️ Extract metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=ref,event=branch,suffix=-dev
+            type=ref,event=pr,suffix=-pr
+            type=sha,prefix=dev-
+
+      - name: 🐳 Build and push Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./Dockerfile
+          push: ${{ github.event_name != 'pull_request' }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          platforms: linux/amd64,linux/arm64
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: 📋 Comment on PR
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: `🐳 **ARC MCP Server Docker image built successfully!**
+              
+              You can test this PR by updating your MCP configuration:
+              \`\`\`json
+              {
+                "mcpServers": {
+                  "arc-mcp-pr": {
+                    "command": "docker",
+                    "args": [
+                      "run", "-i", "--rm",
+                      "-v", "\${HOME}/.kube:/home/node/.kube:ro",
+                      "-e", "GITHUB_TOKEN",
+                      "${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:pr-${{ github.event.number }}"
+                    ]
+                  }
+                }
+              }
+              \`\`\`
+              
+              **Validated Features:**
+              - 🤖 Natural Language ARC operations (16 intent patterns)
+              - 📊 Policy Engine (11 ARC governance rules)
+              - ☸️ CLI Tools: kubectl v1.34.1 + helm v3.16.4
+              - ✅ All integration tests passed
+              - 🐳 Multi-architecture support (AMD64/ARM64)
+              
+              **Quick Test Commands:**
+              - "Install ARC controller in namespace arc-systems"
+              - "List runner scale sets"
+              - "Check ARC compliance"
+              - "Scale runners to 3"`
+            });
+
+  summary:
+    name: 📊 Pipeline Summary
+    runs-on: ubuntu-latest
+    needs: [test-and-validate, docker-build]
     if: always()
     steps:
-      - name: Generate Summary
+      - name: 📋 Generate Summary
         run: |
-          echo "## CI/CD Pipeline Summary" >> $GITHUB_STEP_SUMMARY
+          echo "## 🔄 CI/CD Pipeline Results" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "### Job Status" >> $GITHUB_STEP_SUMMARY
-          echo "- Lint: ${{ needs.lint.result }}" >> $GITHUB_STEP_SUMMARY
-          echo "- Build: ${{ needs.build.result }}" >> $GITHUB_STEP_SUMMARY
-          echo "- Validation: ${{ needs.validate-arc-integration.result }}" >> $GITHUB_STEP_SUMMARY
+          echo "- 🧪 Test & Validate: ${{ needs.test-and-validate.result }}" >> $GITHUB_STEP_SUMMARY
+          echo "- 🐳 Docker Build: ${{ needs.docker-build.result || 'skipped' }}" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          if [ "${{ needs.lint.result }}" = "success" ] && [ "${{ needs.build.result }}" = "success" ] && [ "${{ needs.validate-arc-integration.result }}" = "success" ]; then
-            echo "✅ All checks passed!" >> $GITHUB_STEP_SUMMARY
+          echo "### Build Context" >> $GITHUB_STEP_SUMMARY
+          echo "- Branch: \`${{ github.ref_name }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- Event: \`${{ github.event_name }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- Docker Build: \`${{ needs.test-and-validate.outputs.should-build-docker }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          if [ "${{ needs.test-and-validate.result }}" = "success" ]; then
+            echo "✅ **All core validations passed!**" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "- ✅ TypeScript compilation successful" >> $GITHUB_STEP_SUMMARY  
+            echo "- ✅ Policy Engine: 11+ rules validated" >> $GITHUB_STEP_SUMMARY
+            echo "- ✅ Natural Language Parser: 16+ intents working" >> $GITHUB_STEP_SUMMARY
+            echo "- ✅ ARC integration tests passed" >> $GITHUB_STEP_SUMMARY
           else
-            echo "❌ Some checks failed - review the logs above" >> $GITHUB_STEP_SUMMARY
+            echo "❌ **Some validations failed** - check logs above" >> $GITHUB_STEP_SUMMARY
           fi

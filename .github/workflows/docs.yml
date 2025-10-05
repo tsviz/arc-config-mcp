@@ -1,0 +1,84 @@
+name: 📚 Documentation
+
+on:
+  push:
+    branches: [main, develop]
+    paths:
+      - '**.md'
+      - 'docs/**'
+      - 'examples/**'
+  pull_request:
+    branches: [main, develop]
+    paths:
+      - '**.md'
+      - 'docs/**'
+      - 'examples/**'
+
+jobs:
+  docs-check:
+    name: 📖 Check Documentation
+    runs-on: ubuntu-latest
+    steps:
+      - name: 📥 Checkout
+        uses: actions/checkout@v4
+
+      - name: 🔍 Check for broken links
+        run: |
+          echo "🔗 Checking for broken internal links..."
+          # Check for broken relative links in markdown files
+          find . -name "*.md" -type f | while read file; do
+            echo "Checking $file..."
+            # Extract relative links and check if files exist
+            grep -oE '\[.*\]\([^http][^)]+\)' "$file" || true | while read link; do
+              path=$(echo "$link" | sed 's/.*](\([^)]*\)).*/\1/')
+              if [[ "$path" != http* ]] && [[ "$path" != "#"* ]]; then
+                full_path=$(dirname "$file")/"$path"
+                if [[ ! -f "$full_path" && ! -d "$full_path" ]]; then
+                  echo "⚠️ Warning: Broken link in $file: $path"
+                fi
+              fi
+            done
+          done
+
+      - name: ✅ Validate examples
+        run: |
+          echo "📋 Validating example configurations..."
+          
+          # Check JSON examples are valid
+          find examples/ -name "*.json" -type f 2>/dev/null | while read file; do
+            echo "Validating JSON: $file"
+            if ! jq empty "$file" 2>/dev/null; then
+              echo "❌ Invalid JSON in $file"
+              exit 1
+            else
+              echo "✅ Valid JSON: $file"
+            fi
+          done || echo "No JSON files found in examples/"
+          
+          # Check YAML examples are valid
+          find examples/ -name "*.yaml" -o -name "*.yml" -type f 2>/dev/null | while read file; do
+            echo "Validating YAML: $file"
+            if command -v yq >/dev/null; then
+              if ! yq eval '.' "$file" > /dev/null; then
+                echo "❌ Invalid YAML in $file"
+                exit 1
+              else
+                echo "✅ Valid YAML: $file"
+              fi
+            else
+              echo "📝 yq not available, skipping YAML validation"
+            fi
+          done || echo "No YAML files found in examples/"
+
+      - name: 📊 Documentation summary
+        run: |
+          echo "## 📚 Documentation Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Files Changed" >> $GITHUB_STEP_SUMMARY
+          find . -name "*.md" -type f | wc -l | xargs echo "- Markdown files:" >> $GITHUB_STEP_SUMMARY
+          find docs/ -type f 2>/dev/null | wc -l | xargs echo "- Documentation files:" >> $GITHUB_STEP_SUMMARY || echo "- Documentation files: 0" >> $GITHUB_STEP_SUMMARY
+          find examples/ -type f 2>/dev/null | wc -l | xargs echo "- Example files:" >> $GITHUB_STEP_SUMMARY || echo "- Example files: 0" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "✅ Documentation validation completed!" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "_This workflow only runs for documentation changes and skips expensive builds._" >> $GITHUB_STEP_SUMMARY
