@@ -1,0 +1,309 @@
+# ARC RunnerDeployment Example
+# This creates a basic GitHub Actions runner deployment for repository-level runners
+
+apiVersion: actions.summerwind.dev/v1alpha1
+kind: RunnerDeployment
+metadata:
+  name: example-runner-deployment
+  namespace: arc-runners
+  labels:
+    app.kubernetes.io/name: github-actions-runner
+    app.kubernetes.io/component: runner
+    environment: development
+spec:
+  # Number of runner replicas
+  replicas: 3
+  
+  template:
+    spec:
+      # Repository configuration
+      repository: your-org/your-repo
+      
+      # GitHub Personal Access Token (stored in secret)
+      githubAPICredentialsFrom:
+        secretRef:
+          name: controller-manager
+          key: github_token
+      
+      # Runner labels (used for job targeting)
+      labels:
+        - self-hosted
+        - linux
+        - x64
+        - arc-managed
+        - development
+      
+      # Resource requirements
+      resources:
+        requests:
+          memory: "1Gi"
+          cpu: "500m"
+        limits:
+          memory: "2Gi"
+          cpu: "1000m"
+      
+      # Container image configuration
+      image: summerwind/actions-runner:latest
+      imagePullPolicy: Always
+      
+      # Security context
+      securityContext:
+        runAsUser: 1001
+        runAsGroup: 121
+        runAsNonRoot: true
+        fsGroup: 121
+      
+      # Environment variables
+      env:
+        - name: RUNNER_WORKDIR
+          value: /tmp/runner
+        - name: RUNNER_NAME_PREFIX
+          value: arc-runner
+        - name: DISABLE_RUNNER_UPDATE
+          value: "true"
+      
+      # Node selector for specific node types
+      nodeSelector:
+        kubernetes.io/arch: amd64
+        node-type: github-actions
+      
+      # Tolerations for dedicated nodes
+      tolerations:
+        - key: "dedicated"
+          operator: "Equal"
+          value: "github-actions"
+          effect: "NoSchedule"
+      
+      # Affinity rules
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 100
+            podAffinityTerm:
+              labelSelector:
+                matchExpressions:
+                - key: app.kubernetes.io/name
+                  operator: In
+                  values:
+                  - github-actions-runner
+              topologyKey: kubernetes.io/hostname
+      
+      # Volume mounts for Docker-in-Docker or Docker socket
+      volumes:
+        - name: docker-sock
+          hostPath:
+            path: /var/run/docker.sock
+        - name: runner-workspace
+          emptyDir: {}
+      
+      volumeMounts:
+        - name: docker-sock
+          mountPath: /var/run/docker.sock
+        - name: runner-workspace
+          mountPath: /tmp/runner
+      
+      # Ephemeral runners (terminate after job completion)
+      ephemeral: false
+      
+      # Runner timeout
+      runnerScaleSetName: example-runners
+      
+---
+# RunnerSet with Horizontal Pod Autoscaler
+apiVersion: actions.summerwind.dev/v1alpha1
+kind: RunnerSet
+metadata:
+  name: example-runner-set
+  namespace: arc-runners
+  labels:
+    app.kubernetes.io/name: github-actions-runner-set
+    app.kubernetes.io/component: runner-set
+    environment: development
+spec:
+  # Organization-level runners (alternative to repository)
+  organization: your-organization
+  
+  # GitHub Personal Access Token
+  githubAPICredentialsFrom:
+    secretRef:
+      name: controller-manager
+      key: github_token
+  
+  # Runner configuration
+  template:
+    spec:
+      # Runner labels
+      labels:
+        - self-hosted
+        - linux
+        - x64
+        - arc-managed
+        - org-runners
+      
+      # Resource requirements
+      resources:
+        requests:
+          memory: "2Gi"
+          cpu: "1000m"
+        limits:
+          memory: "4Gi"
+          cpu: "2000m"
+      
+      # Enhanced image with additional tools
+      image: summerwind/actions-runner:latest
+      
+      # Security configuration
+      securityContext:
+        runAsUser: 1001
+        runAsNonRoot: true
+        allowPrivilegeEscalation: false
+        capabilities:
+          drop:
+            - ALL
+        seccompProfile:
+          type: RuntimeDefault
+      
+      # Environment variables
+      env:
+        - name: RUNNER_WORKDIR
+          value: /tmp/runner
+        - name: RUNNER_FEATURE_FLAG_ONCE
+          value: "true"
+        - name: ACTIONS_RUNNER_REQUIRE_JOB_CONTAINER
+          value: "false"
+      
+      # Init containers for setup
+      initContainers:
+        - name: setup-runner
+          image: busybox:latest
+          command: ['sh', '-c', 'echo "Setting up runner environment"']
+          securityContext:
+            runAsUser: 1001
+            runAsNonRoot: true
+      
+      # Sidecar containers for monitoring
+      sidecarContainers:
+        - name: log-collector
+          image: fluent/fluent-bit:latest
+          resources:
+            requests:
+              memory: "64Mi"
+              cpu: "50m"
+            limits:
+              memory: "128Mi"
+              cpu: "100m"
+
+---
+# HorizontalPodAutoscaler for automatic scaling
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: example-runner-hpa
+  namespace: arc-runners
+  labels:
+    app.kubernetes.io/name: github-actions-runner-hpa
+    app.kubernetes.io/component: autoscaler
+spec:
+  scaleTargetRef:
+    apiVersion: actions.summerwind.dev/v1alpha1
+    kind: RunnerDeployment
+    name: example-runner-deployment
+  
+  # Scaling configuration
+  minReplicas: 1
+  maxReplicas: 10
+  
+  # Scaling metrics
+  metrics:
+    - type: External
+      external:
+        metric:
+          name: github_actions_queue_length
+          selector:
+            matchLabels:
+              repository: "your-org/your-repo"
+        target:
+          type: Value
+          value: "5"  # Scale up if more than 5 jobs in queue
+    
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70
+    
+    - type: Resource
+      resource:
+        name: memory
+        target:
+          type: Utilization
+          averageUtilization: 80
+  
+  # Scaling behavior
+  behavior:
+    scaleUp:
+      stabilizationWindowSeconds: 60
+      policies:
+      - type: Percent
+        value: 100
+        periodSeconds: 60
+      - type: Pods
+        value: 2
+        periodSeconds: 60
+      selectPolicy: Max
+    
+    scaleDown:
+      stabilizationWindowSeconds: 300
+      policies:
+      - type: Percent
+        value: 10
+        periodSeconds: 60
+      selectPolicy: Min
+
+---
+# Service for runner metrics (if applicable)
+apiVersion: v1
+kind: Service
+metadata:
+  name: runner-metrics
+  namespace: arc-runners
+  labels:
+    app.kubernetes.io/name: github-actions-runner
+    app.kubernetes.io/component: metrics
+spec:
+  selector:
+    app.kubernetes.io/name: github-actions-runner
+  ports:
+    - name: metrics
+      port: 8080
+      targetPort: 8080
+      protocol: TCP
+  type: ClusterIP
+
+---
+# ConfigMap for runner configuration
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: runner-config
+  namespace: arc-runners
+  labels:
+    app.kubernetes.io/name: github-actions-runner
+    app.kubernetes.io/component: config
+data:
+  runner.env: |
+    RUNNER_WORKDIR=/tmp/runner
+    RUNNER_ALLOW_RUNASROOT=0
+    DISABLE_RUNNER_UPDATE=true
+    ACTIONS_RUNNER_PRINT_LOG_TO_STDOUT=1
+    
+  setup.sh: |
+    #!/bin/bash
+    echo "Setting up GitHub Actions runner environment"
+    # Add custom setup logic here
+    
+  cleanup.sh: |
+    #!/bin/bash
+    echo "Cleaning up runner environment"
+    # Add custom cleanup logic here

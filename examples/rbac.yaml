@@ -1,0 +1,205 @@
+# RBAC Configuration for ARC MCP Server
+# This provides the necessary permissions for the MCP server to manage ARC resources
+
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: arc-system
+  labels:
+    name: arc-system
+    app.kubernetes.io/name: arc-system
+    app.kubernetes.io/component: controller
+
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: arc-mcp-server
+  namespace: arc-system
+  labels:
+    app.kubernetes.io/name: arc-mcp-server
+    app.kubernetes.io/component: mcp-server
+
+---
+# ClusterRole for ARC MCP Server
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: arc-mcp-server
+  labels:
+    app.kubernetes.io/name: arc-mcp-server
+rules:
+# Core Kubernetes resources
+- apiGroups: [""]
+  resources: ["namespaces"]
+  verbs: ["get", "list", "watch"]
+- apiGroups: [""]
+  resources: ["pods", "pods/log", "pods/status"]
+  verbs: ["get", "list", "watch"]
+- apiGroups: [""]
+  resources: ["services", "endpoints"]
+  verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+- apiGroups: [""]
+  resources: ["configmaps", "secrets"]
+  verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+- apiGroups: [""]
+  resources: ["events"]
+  verbs: ["get", "list", "watch", "create"]
+
+# Apps resources
+- apiGroups: ["apps"]
+  resources: ["deployments", "replicasets", "statefulsets", "daemonsets"]
+  verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+
+# Networking
+- apiGroups: ["networking.k8s.io"]
+  resources: ["networkpolicies", "ingresses"]
+  verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+
+# RBAC (limited to specific namespaces)
+- apiGroups: ["rbac.authorization.k8s.io"]
+  resources: ["roles", "rolebindings"]
+  verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+
+# Autoscaling
+- apiGroups: ["autoscaling"]
+  resources: ["horizontalpodautoscalers"]
+  verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+
+# Metrics
+- apiGroups: ["metrics.k8s.io"]
+  resources: ["pods", "nodes"]
+  verbs: ["get", "list"]
+
+# Custom Resource Definitions
+- apiGroups: ["apiextensions.k8s.io"]
+  resources: ["customresourcedefinitions"]
+  verbs: ["get", "list", "watch"]
+
+# ARC (Actions Runner Controller) specific resources
+- apiGroups: ["actions.summerwind.dev"]
+  resources: ["*"]
+  verbs: ["*"]
+
+# Cert-manager (if using certificates)
+- apiGroups: ["cert-manager.io"]
+  resources: ["certificates", "certificaterequests", "issuers", "clusterissuers"]
+  verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+
+# Monitoring and observability
+- apiGroups: ["monitoring.coreos.com"]
+  resources: ["servicemonitors", "prometheusrules"]
+  verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+
+---
+# ClusterRoleBinding for ARC MCP Server
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: arc-mcp-server
+  labels:
+    app.kubernetes.io/name: arc-mcp-server
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: arc-mcp-server
+subjects:
+- kind: ServiceAccount
+  name: arc-mcp-server
+  namespace: arc-system
+
+---
+# Additional namespace-specific role for runner management
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: arc-runners
+  labels:
+    name: arc-runners
+    app.kubernetes.io/name: arc-runners
+    app.kubernetes.io/component: runners
+
+---
+# Role for managing runners in arc-runners namespace
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: arc-runner-manager
+  namespace: arc-runners
+  labels:
+    app.kubernetes.io/name: arc-mcp-server
+    app.kubernetes.io/component: runner-manager
+rules:
+- apiGroups: [""]
+  resources: ["*"]
+  verbs: ["*"]
+- apiGroups: ["apps"]
+  resources: ["*"]
+  verbs: ["*"]
+- apiGroups: ["extensions"]
+  resources: ["*"]
+  verbs: ["*"]
+- apiGroups: ["actions.summerwind.dev"]
+  resources: ["*"]
+  verbs: ["*"]
+
+---
+# RoleBinding for runner management
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: arc-runner-manager
+  namespace: arc-runners
+  labels:
+    app.kubernetes.io/name: arc-mcp-server
+    app.kubernetes.io/component: runner-manager
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: arc-runner-manager
+subjects:
+- kind: ServiceAccount
+  name: arc-mcp-server
+  namespace: arc-system
+
+---
+# NetworkPolicy for ARC MCP Server (optional security)
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: arc-mcp-server-netpol
+  namespace: arc-system
+  labels:
+    app.kubernetes.io/name: arc-mcp-server
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: arc-mcp-server
+  policyTypes:
+  - Ingress
+  - Egress
+  ingress:
+  - from: []  # Allow all ingress (adjust as needed)
+    ports:
+    - protocol: TCP
+      port: 3000
+  egress:
+  - {}  # Allow all egress (required for Kubernetes API, GitHub API, etc.)
+
+---
+# ServiceMonitor for Prometheus monitoring (optional)
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: arc-mcp-server
+  namespace: arc-system
+  labels:
+    app.kubernetes.io/name: arc-mcp-server
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: arc-mcp-server
+  endpoints:
+  - port: metrics
+    path: /metrics
+    interval: 30s

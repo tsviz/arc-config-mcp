@@ -1,0 +1,16 @@
+{
+    "mcpServers": {
+        "arc-config": {
+            "command": "node",
+            "args": [
+                "/path/to/arc-config-mcp/build/index.js"
+            ],
+            "env": {
+                "GITHUB_TOKEN": "ghp_your_token_here",
+                "GITHUB_ORG": "your-organization",
+                "LOG_LEVEL": "info",
+                "ENABLE_METRICS": "true"
+            }
+        }
+    }
+}

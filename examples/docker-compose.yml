@@ -1,0 +1,92 @@
+# Docker Compose configuration for ARC MCP Server
+version: '3.8'
+
+services:
+  arc-mcp-server:
+    image: ghcr.io/tsviz/arc-config-mcp:latest
+    container_name: arc-mcp-server
+    ports:
+      - "3000:3000"
+    environment:
+      # GitHub Configuration
+      - GITHUB_TOKEN=${GITHUB_TOKEN}
+      - GITHUB_ORG=${GITHUB_ORG:-}
+      - GITHUB_REPO=${GITHUB_REPO:-}
+      
+      # Kubernetes Configuration
+      - KUBECONFIG_PATH=/app/.kube/config
+      - ARC_NAMESPACE=arc-system
+      - RUNNER_NAMESPACE=arc-runners
+      
+      # MCP Server Configuration
+      - MCP_PORT=3000
+      - LOG_LEVEL=info
+      - ENABLE_METRICS=true
+      
+      # Security Configuration
+      - ENABLE_POLICY_VALIDATION=true
+      - SECURITY_PROFILE=standard
+      - AUTO_FIX_VIOLATIONS=false
+      
+    volumes:
+      # Mount kubeconfig for cluster access
+      - ~/.kube/config:/app/.kube/config:ro
+      
+      # Optional: Mount custom policies
+      - ./policies:/app/policies:ro
+      
+      # Optional: Mount custom configuration
+      - ./config:/app/config:ro
+      
+    restart: unless-stopped
+    
+    # Health check
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # Optional: Prometheus for metrics collection
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: arc-prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/etc/prometheus/console_libraries'
+      - '--web.console.templates=/etc/prometheus/consoles'
+      - '--web.enable-lifecycle'
+    restart: unless-stopped
+    depends_on:
+      - arc-mcp-server
+
+  # Optional: Grafana for dashboards
+  grafana:
+    image: grafana/grafana:latest
+    container_name: arc-grafana
+    ports:
+      - "3001:3000"
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=admin123
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./monitoring/grafana-dashboards:/etc/grafana/provisioning/dashboards:ro
+      - ./monitoring/grafana-datasources:/etc/grafana/provisioning/datasources:ro
+    restart: unless-stopped
+    depends_on:
+      - prometheus
+
+volumes:
+  prometheus_data:
+  grafana_data:
+
+networks:
+  default:
+    name: arc-mcp-network
