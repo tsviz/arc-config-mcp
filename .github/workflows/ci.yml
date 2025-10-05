@@ -91,7 +91,7 @@ jobs:
               const testCases = [
                 'Install ARC controller',
                 'Scale runners to 5',
-                'Check compliance',
+                'Check ARC compliance',
                 'List runner scale sets'
               ];
               testCases.forEach(cmd => {
