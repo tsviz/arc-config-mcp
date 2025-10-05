@@ -1,0 +1,594 @@
+/**
+ * Enhanced Kubernetes Service for ARC Operations
+ * 
+ * Comprehensive Kubernetes service with full ARC management capabilities.
+ * Based on proven patterns from the arc-config-repo implementation.
+ */
+
+import * as k8s from '@kubernetes/client-node';
+import type { Logger } from 'winston';
+
+export interface ClusterInfo {
+    version: string;
+    currentContext: string;
+    nodeCount: number;
+    readyNodes: number;
+    totalCpu?: number;
+    totalMemory?: number;
+}
+
+export interface DeploymentInfo {
+    name: string;
+    namespace: string;
+    replicas: number;
+    readyReplicas: number;
+    availableReplicas: number;
+    labels: Record<string, string>;
+    securityContext?: any;
+    resources?: any;
+}
+
+export interface NamespaceInfo {
+    name: string;
+    labels: Record<string, string>;
+    status: string;
+}
+
+export interface NetworkPolicyInfo {
+    name: string;
+    namespace: string;
+    labels: Record<string, string>;
+}
+
+export class KubernetesEnhancedService {
+    private kc: k8s.KubeConfig;
+    private k8sApi: k8s.CoreV1Api;
+    private appsApi: k8s.AppsV1Api;
+    private networkingApi: k8s.NetworkingV1Api;
+    private customObjectsApi: k8s.CustomObjectsApi;
+    private logger: Logger;
+
+    constructor(logger: Logger) {
+        this.logger = logger;
+        this.kc = new k8s.KubeConfig();
+
+        try {
+            this.kc.loadFromDefault();
+        } catch (error) {
+            this.logger.error('Failed to load Kubernetes configuration', { error });
+            throw new Error('Kubernetes configuration not found or invalid');
+        }
+
+        this.k8sApi = this.kc.makeApiClient(k8s.CoreV1Api);
+        this.appsApi = this.kc.makeApiClient(k8s.AppsV1Api);
+        this.networkingApi = this.kc.makeApiClient(k8s.NetworkingV1Api);
+        this.customObjectsApi = this.kc.makeApiClient(k8s.CustomObjectsApi);
+    }
+
+    /**
+     * Get comprehensive cluster information
+     */
+    async getClusterInfo(): Promise<ClusterInfo> {
+        try {
+            const versionResponse = await this.k8sApi.getAPIVersions();
+            const nodesResponse = await this.k8sApi.listNode();
+            const nodes = nodesResponse.body.items;
+
+            const readyNodes = nodes.filter(node =>
+                node.status?.conditions?.some(condition =>
+                    condition.type === 'Ready' && condition.status === 'True'
+                )
+            ).length;
+
+            // Calculate total resources
+            let totalCpu = 0;
+            let totalMemory = 0;
+
+            for (const node of nodes) {
+                if (node.status?.capacity) {
+                    const cpu = node.status.capacity.cpu;
+                    const memory = node.status.capacity.memory;
+
+                    if (cpu) {
+                        // Convert CPU to millicores
+                        if (cpu.endsWith('m')) {
+                            totalCpu += parseInt(cpu.slice(0, -1));
+                        } else {
+                            totalCpu += parseInt(cpu) * 1000;
+                        }
+                    }
+
+                    if (memory) {
+                        // Convert memory to Ki
+                        if (memory.endsWith('Ki')) {
+                            totalMemory += parseInt(memory.slice(0, -2));
+                        } else if (memory.endsWith('Mi')) {
+                            totalMemory += parseInt(memory.slice(0, -2)) * 1024;
+                        } else if (memory.endsWith('Gi')) {
+                            totalMemory += parseInt(memory.slice(0, -2)) * 1024 * 1024;
+                        }
+                    }
+                }
+            }
+
+            return {
+                version: versionResponse.body.versions?.[0] || 'unknown',
+                currentContext: this.kc.getCurrentContext(),
+                nodeCount: nodes.length,
+                readyNodes,
+                totalCpu,
+                totalMemory
+            };
+        } catch (error) {
+            this.logger.error('Failed to get cluster info', { error });
+            throw new Error(`Failed to get cluster information: ${error}`);
+        }
+    }
+
+    /**
+     * Get API versions available in the cluster
+     */
+    async getApiVersions(): Promise<string[]> {
+        try {
+            const response = await this.k8sApi.getAPIVersions();
+            return response.body.versions || [];
+        } catch (error) {
+            this.logger.error('Failed to get API versions', { error });
+            return [];
+        }
+    }
+
+    /**
+     * List all namespaces
+     */
+    async listNamespaces(): Promise<NamespaceInfo[]> {
+        try {
+            const response = await this.k8sApi.listNamespace();
+            return response.body.items.map(ns => ({
+                name: ns.metadata?.name || '',
+                labels: ns.metadata?.labels || {},
+                status: ns.status?.phase || 'Unknown'
+            }));
+        } catch (error) {
+            this.logger.error('Failed to list namespaces', { error });
+            throw new Error(`Failed to list namespaces: ${error}`);
+        }
+    }
+
+    /**
+     * Get a specific namespace
+     */
+    async getNamespace(name: string): Promise<NamespaceInfo> {
+        try {
+            const response = await this.k8sApi.readNamespace(name);
+            const ns = response.body;
+
+            return {
+                name: ns.metadata?.name || '',
+                labels: ns.metadata?.labels || {},
+                status: ns.status?.phase || 'Unknown'
+            };
+        } catch (error) {
+            this.logger.error('Failed to get namespace', { namespace: name, error });
+            throw new Error(`Failed to get namespace ${name}: ${error}`);
+        }
+    }
+
+    /**
+     * Create a namespace with labels
+     */
+    async createNamespace(name: string, labels: Record<string, string> = {}): Promise<void> {
+        try {
+            const namespace = {
+                apiVersion: 'v1',
+                kind: 'Namespace',
+                metadata: {
+                    name,
+                    labels
+                }
+            };
+
+            await this.k8sApi.createNamespace(namespace);
+            this.logger.info('Namespace created successfully', { namespace: name, labels });
+        } catch (error: any) {
+            if (error.statusCode === 409) {
+                // Namespace already exists, update labels
+                this.logger.info('Namespace already exists, updating labels', { namespace: name });
+                await this.updateNamespaceLabels(name, labels);
+            } else {
+                this.logger.error('Failed to create namespace', { namespace: name, error });
+                throw new Error(`Failed to create namespace ${name}: ${error}`);
+            }
+        }
+    }
+
+    /**
+     * Update namespace labels
+     */
+    async updateNamespaceLabels(name: string, labels: Record<string, string>): Promise<void> {
+        try {
+            const patch = {
+                metadata: {
+                    labels
+                }
+            };
+
+            await this.k8sApi.patchNamespace(name, patch, undefined, undefined, undefined, undefined, {
+                headers: { 'Content-Type': 'application/merge-patch+json' }
+            });
+
+            this.logger.info('Namespace labels updated', { namespace: name, labels });
+        } catch (error) {
+            this.logger.error('Failed to update namespace labels', { namespace: name, error });
+            throw new Error(`Failed to update namespace labels for ${name}: ${error}`);
+        }
+    }
+
+    /**
+     * Delete a namespace
+     */
+    async deleteNamespace(name: string): Promise<void> {
+        try {
+            await this.k8sApi.deleteNamespace(name);
+            this.logger.info('Namespace deleted', { namespace: name });
+        } catch (error) {
+            this.logger.error('Failed to delete namespace', { namespace: name, error });
+            throw new Error(`Failed to delete namespace ${name}: ${error}`);
+        }
+    }
+
+    /**
+     * List deployments in a namespace
+     */
+    async listDeployments(namespace?: string): Promise<DeploymentInfo[]> {
+        try {
+            const response = namespace
+                ? await this.appsApi.listNamespacedDeployment(namespace)
+                : await this.appsApi.listDeploymentForAllNamespaces();
+
+            return response.body.items.map(deployment => ({
+                name: deployment.metadata?.name || '',
+                namespace: deployment.metadata?.namespace || '',
+                replicas: deployment.spec?.replicas || 0,
+                readyReplicas: deployment.status?.readyReplicas || 0,
+                availableReplicas: deployment.status?.availableReplicas || 0,
+                labels: deployment.metadata?.labels || {},
+                securityContext: deployment.spec?.template?.spec?.securityContext,
+                resources: deployment.spec?.template?.spec?.containers?.[0]?.resources
+            }));
+        } catch (error) {
+            this.logger.error('Failed to list deployments', { namespace, error });
+            throw new Error(`Failed to list deployments: ${error}`);
+        }
+    }
+
+    /**
+     * Get deployment status
+     */
+    async getDeploymentStatus(name: string, namespace: string): Promise<DeploymentInfo> {
+        try {
+            const response = await this.appsApi.readNamespacedDeployment(name, namespace);
+            const deployment = response.body;
+
+            return {
+                name: deployment.metadata?.name || '',
+                namespace: deployment.metadata?.namespace || '',
+                replicas: deployment.spec?.replicas || 0,
+                readyReplicas: deployment.status?.readyReplicas || 0,
+                availableReplicas: deployment.status?.availableReplicas || 0,
+                labels: deployment.metadata?.labels || {},
+                securityContext: deployment.spec?.template?.spec?.securityContext,
+                resources: deployment.spec?.template?.spec?.containers?.[0]?.resources
+            };
+        } catch (error) {
+            this.logger.error('Failed to get deployment status', { name, namespace, error });
+            throw new Error(`Failed to get deployment ${name} in namespace ${namespace}: ${error}`);
+        }
+    }
+
+    /**
+     * Wait for a deployment to be ready
+     */
+    async waitForDeployment(name: string, namespace: string, timeoutSeconds: number = 300): Promise<void> {
+        const start = Date.now();
+        const timeout = timeoutSeconds * 1000;
+
+        this.logger.info('Waiting for deployment to be ready', { name, namespace, timeoutSeconds });
+
+        while (Date.now() - start < timeout) {
+            try {
+                const deployment = await this.getDeploymentStatus(name, namespace);
+
+                if (deployment.readyReplicas === deployment.replicas && deployment.replicas > 0) {
+                    this.logger.info('Deployment is ready', { name, namespace });
+                    return;
+                }
+
+                // Wait 5 seconds before checking again
+                await new Promise(resolve => setTimeout(resolve, 5000));
+            } catch (error) {
+                // Deployment might not exist yet, continue waiting
+                await new Promise(resolve => setTimeout(resolve, 5000));
+            }
+        }
+
+        throw new Error(`Timeout waiting for deployment ${name} in namespace ${namespace} to be ready`);
+    }
+
+    /**
+     * Create a secret
+     */
+    async createSecret(
+        namespace: string,
+        name: string,
+        data: Record<string, string>,
+        labels: Record<string, string> = {}
+    ): Promise<void> {
+        try {
+            const secret = {
+                apiVersion: 'v1',
+                kind: 'Secret',
+                metadata: {
+                    name,
+                    namespace,
+                    labels
+                },
+                type: 'Opaque',
+                stringData: data
+            };
+
+            await this.k8sApi.createNamespacedSecret(namespace, secret);
+            this.logger.info('Secret created successfully', { name, namespace });
+        } catch (error: any) {
+            if (error.statusCode === 409) {
+                // Secret already exists, update it
+                await this.updateSecret(namespace, name, data, labels);
+            } else {
+                this.logger.error('Failed to create secret', { name, namespace, error });
+                throw new Error(`Failed to create secret ${name} in namespace ${namespace}: ${error}`);
+            }
+        }
+    }
+
+    /**
+     * Update a secret
+     */
+    async updateSecret(
+        namespace: string,
+        name: string,
+        data: Record<string, string>,
+        labels: Record<string, string> = {}
+    ): Promise<void> {
+        try {
+            const secret = {
+                apiVersion: 'v1',
+                kind: 'Secret',
+                metadata: {
+                    name,
+                    namespace,
+                    labels
+                },
+                type: 'Opaque',
+                stringData: data
+            };
+
+            await this.k8sApi.replaceNamespacedSecret(name, namespace, secret);
+            this.logger.info('Secret updated successfully', { name, namespace });
+        } catch (error) {
+            this.logger.error('Failed to update secret', { name, namespace, error });
+            throw new Error(`Failed to update secret ${name} in namespace ${namespace}: ${error}`);
+        }
+    }
+
+    /**
+     * Get pod logs
+     */
+    async getPodLogs(namespace: string, labelSelector: string, lines: number = 100): Promise<string> {
+        try {
+            // First, get pods with the label selector
+            const podsResponse = await this.k8sApi.listNamespacedPod(
+                namespace,
+                undefined, undefined, undefined, undefined, labelSelector
+            );
+
+            if (podsResponse.body.items.length === 0) {
+                return 'No pods found with the specified label selector';
+            }
+
+            // Get logs from the first pod
+            const podName = podsResponse.body.items[0].metadata?.name;
+            if (!podName) {
+                return 'Pod name not found';
+            }
+
+            const logsResponse = await this.k8sApi.readNamespacedPodLog(
+                podName,
+                namespace,
+                undefined, // container
+                false, // follow
+                undefined, // limitBytes
+                undefined, // pretty
+                false, // previous
+                undefined, // sinceSeconds
+                lines // tailLines
+            );
+
+            return logsResponse.body;
+        } catch (error) {
+            this.logger.error('Failed to get pod logs', { namespace, labelSelector, error });
+            throw new Error(`Failed to get pod logs: ${error}`);
+        }
+    }
+
+    /**
+     * List network policies
+     */
+    async listNetworkPolicies(namespace: string): Promise<NetworkPolicyInfo[]> {
+        try {
+            const response = await this.networkingApi.listNamespacedNetworkPolicy(namespace);
+
+            return response.body.items.map(policy => ({
+                name: policy.metadata?.name || '',
+                namespace: policy.metadata?.namespace || '',
+                labels: policy.metadata?.labels || {}
+            }));
+        } catch (error) {
+            this.logger.error('Failed to list network policies', { namespace, error });
+            return [];
+        }
+    }
+
+    /**
+     * Apply a Kubernetes resource
+     */
+    async applyResource(resource: any): Promise<void> {
+        try {
+            const { kind, metadata } = resource;
+            const namespace = metadata?.namespace;
+            const name = metadata?.name;
+
+            switch (kind) {
+                case 'NetworkPolicy':
+                    try {
+                        await this.networkingApi.createNamespacedNetworkPolicy(namespace, resource);
+                    } catch (error: any) {
+                        if (error.statusCode === 409) {
+                            await this.networkingApi.replaceNamespacedNetworkPolicy(name, namespace, resource);
+                        } else {
+                            throw error;
+                        }
+                    }
+                    break;
+
+                case 'Secret':
+                    try {
+                        await this.k8sApi.createNamespacedSecret(namespace, resource);
+                    } catch (error: any) {
+                        if (error.statusCode === 409) {
+                            await this.k8sApi.replaceNamespacedSecret(name, namespace, resource);
+                        } else {
+                            throw error;
+                        }
+                    }
+                    break;
+
+                case 'ConfigMap':
+                    try {
+                        await this.k8sApi.createNamespacedConfigMap(namespace, resource);
+                    } catch (error: any) {
+                        if (error.statusCode === 409) {
+                            await this.k8sApi.replaceNamespacedConfigMap(name, namespace, resource);
+                        } else {
+                            throw error;
+                        }
+                    }
+                    break;
+
+                default:
+                    // For custom resources, use the custom objects API
+                    const parts = resource.apiVersion.split('/');
+                    const group = parts.length === 2 ? parts[0] : '';
+                    const version = parts.length === 2 ? parts[1] : parts[0];
+                    const plural = `${kind.toLowerCase()}s`; // Simple pluralization
+
+                    try {
+                        await this.customObjectsApi.createNamespacedCustomObject(
+                            group, version, namespace, plural, resource
+                        );
+                    } catch (error: any) {
+                        if (error.statusCode === 409) {
+                            await this.customObjectsApi.replaceNamespacedCustomObject(
+                                group, version, namespace, plural, name, resource
+                            );
+                        } else {
+                            throw error;
+                        }
+                    }
+                    break;
+            }
+
+            this.logger.info('Resource applied successfully', { kind, name, namespace });
+        } catch (error) {
+            this.logger.error('Failed to apply resource', { resource: resource.kind, error });
+            throw new Error(`Failed to apply ${resource.kind}: ${error}`);
+        }
+    }
+
+    /**
+     * Get custom resources
+     */
+    async getCustomResources(apiVersion: string, kind: string, namespace?: string): Promise<any[]> {
+        try {
+            const parts = apiVersion.split('/');
+            const group = parts.length === 2 ? parts[0] : '';
+            const version = parts.length === 2 ? parts[1] : parts[0];
+            const plural = `${kind.toLowerCase()}s`; // Simple pluralization
+
+            const response = namespace
+                ? await this.customObjectsApi.listNamespacedCustomObject(group, version, namespace, plural)
+                : await this.customObjectsApi.listClusterCustomObject(group, version, plural);
+
+            return (response.body as any).items || [];
+        } catch (error) {
+            this.logger.error('Failed to get custom resources', { apiVersion, kind, namespace, error });
+            return [];
+        }
+    }
+
+    /**
+     * Delete custom resources
+     */
+    async deleteCustomResources(apiVersion: string, kind: string, namespace: string): Promise<void> {
+        try {
+            const resources = await this.getCustomResources(apiVersion, kind, namespace);
+            const parts = apiVersion.split('/');
+            const group = parts.length === 2 ? parts[0] : '';
+            const version = parts.length === 2 ? parts[1] : parts[0];
+            const plural = `${kind.toLowerCase()}s`;
+
+            for (const resource of resources) {
+                const name = resource.metadata?.name;
+                if (name) {
+                    await this.customObjectsApi.deleteNamespacedCustomObject(
+                        group, version, namespace, plural, name
+                    );
+                }
+            }
+
+            this.logger.info('Custom resources deleted', { apiVersion, kind, namespace, count: resources.length });
+        } catch (error) {
+            this.logger.error('Failed to delete custom resources', { apiVersion, kind, namespace, error });
+            throw new Error(`Failed to delete custom resources: ${error}`);
+        }
+    }
+
+    /**
+     * Delete Helm release (requires helm CLI)
+     */
+    async deleteHelmRelease(releaseName: string, namespace: string): Promise<void> {
+        const { exec } = await import('child_process');
+        const { promisify } = await import('util');
+        const execAsync = promisify(exec);
+
+        try {
+            await execAsync(`helm uninstall ${releaseName} --namespace ${namespace}`);
+            this.logger.info('Helm release deleted', { releaseName, namespace });
+        } catch (error) {
+            this.logger.error('Failed to delete Helm release', { releaseName, namespace, error });
+            throw new Error(`Failed to delete Helm release ${releaseName}: ${error}`);
+        }
+    }
+
+    /**
+     * Get pods in namespace for compatibility
+     */
+    async getPodsInNamespace(namespace: string): Promise<any[]> {
+        try {
+            const response = await this.k8sApi.listNamespacedPod(namespace);
+            return response.body.items;
+        } catch (error) {
+            this.logger.error('Failed to get pods in namespace', { namespace, error });
+            return [];
+        }
+    }
+}

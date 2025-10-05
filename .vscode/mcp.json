@@ -1,0 +1,10 @@
+{
+  "name": "arc-config-mcp",
+  "command": "node",
+  "args": [
+    "/Users/tsvi/git_projects/tsviz/arc-config-mcp/build/index.js"
+  ],
+  "env": {
+    "NODE_ENV": "development"
+  }
+}
