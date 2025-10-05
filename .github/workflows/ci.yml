@@ -55,8 +55,30 @@ jobs:
       - name: Test Policy Engine
         run: |
           node --input-type=module -e "
-            import('./build/engines/policy-engine.js').then(({ ArcPolicyEngine }) => {
-              const engine = new ArcPolicyEngine();
+            Promise.all([
+              import('@kubernetes/client-node'),
+              import('./build/engines/policy-engine.js')
+            ]).then(([k8s, policyModule]) => {
+              const { KubeConfig } = k8s;
+              const { ArcPolicyEngine } = policyModule;
+              
+              // Create a mock KubeConfig for testing
+              const kc = new KubeConfig();
+              // Load default config or create empty config for CI testing
+              try {
+                kc.loadFromDefault();
+              } catch (e) {
+                // In CI, create minimal config
+                kc.loadFromString(JSON.stringify({
+                  apiVersion: 'v1',
+                  kind: 'Config',
+                  clusters: [{ name: 'test-cluster', cluster: { server: 'https://test' } }],
+                  users: [{ name: 'test-user', user: {} }],
+                  contexts: [{ name: 'test-context', context: { cluster: 'test-cluster', user: 'test-user' } }],
+                  'current-context': 'test-context'
+                }));
+              }
+              const engine = new ArcPolicyEngine(kc);
               const rules = engine.getRules();
               if (rules.length < 12) throw new Error('Expected at least 12 policy rules');
               console.log('✅ Policy Engine validated with ' + rules.length + ' rules');
