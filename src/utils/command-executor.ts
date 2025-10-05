@@ -62,10 +62,10 @@ export class CommandExecutor {
         const fullCommand = `${command} ${args}`;
         const startTime = Date.now();
 
-        this.logger.info(`Executing command: ${fullCommand}`, { 
-            command, 
+        this.logger.info(`Executing command: ${fullCommand}`, {
+            command,
             args,
-            dryRun: options.dryRun || false 
+            dryRun: options.dryRun || false
         });
 
         // Dry run mode - just log and return mock result
@@ -100,7 +100,7 @@ export class CommandExecutor {
             };
 
             this.commandHistory.push(result);
-            this.logger.info(`Command completed successfully`, { 
+            this.logger.info(`Command completed successfully`, {
                 command: fullCommand,
                 duration: `${duration}ms`,
                 stdoutLength: result.stdout.length
@@ -111,7 +111,7 @@ export class CommandExecutor {
         } catch (error: any) {
             const duration = Date.now() - startTime;
             const errorMessage = error instanceof Error ? error.message : String(error);
-            
+
             const result: CommandResult = {
                 stdout: error.stdout?.toString().trim() || '',
                 stderr: error.stderr?.toString().trim() || errorMessage,

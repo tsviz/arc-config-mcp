@@ -138,16 +138,16 @@ $ docker run --rm arc-mcp-server:local-test ls -la /usr/local/bin/
 
 ## 📊 Project Statistics
 
-| Metric | Value |
-|--------|-------|
-| Source Files | 11 TypeScript files |
-| Lines of Code | 3,987 total |
-| Build Size | 6.0KB (minified) |
-| Docker Image | 365MB |
-| kubectl Version | v1.34.1 |
-| helm Version | v3.16.4 |
-| Compilation Errors | 0 |
-| Type Safety | 100% |
+| Metric             | Value               |
+| ------------------ | ------------------- |
+| Source Files       | 11 TypeScript files |
+| Lines of Code      | 3,987 total         |
+| Build Size         | 6.0KB (minified)    |
+| Docker Image       | 365MB               |
+| kubectl Version    | v1.34.1             |
+| helm Version       | v3.16.4             |
+| Compilation Errors | 0                   |
+| Type Safety        | 100%                |
 
 ---
 

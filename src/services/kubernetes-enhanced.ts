@@ -70,7 +70,9 @@ export class KubernetesEnhancedService {
      */
     async getClusterInfo(): Promise<ClusterInfo> {
         try {
-            const versionResponse = await this.k8sApi.getAPIVersions();
+            // Get version info from version API
+            const versionApi = this.kc.makeApiClient(k8s.VersionApi);
+            const versionResponse = await versionApi.getCode();
             const nodesResponse = await this.k8sApi.listNode();
             const nodes = nodesResponse.body.items;
 
@@ -112,7 +114,7 @@ export class KubernetesEnhancedService {
             }
 
             return {
-                version: versionResponse.body.versions?.[0] || 'unknown',
+                version: versionResponse.body.gitVersion || 'unknown',
                 currentContext: this.kc.getCurrentContext(),
                 nodeCount: nodes.length,
                 readyNodes,
@@ -130,8 +132,9 @@ export class KubernetesEnhancedService {
      */
     async getApiVersions(): Promise<string[]> {
         try {
-            const response = await this.k8sApi.getAPIVersions();
-            return response.body.versions || [];
+            const apisApi = this.kc.makeApiClient(k8s.ApisApi);
+            const response = await apisApi.getAPIVersions();
+            return response.body.groups.map(g => g.preferredVersion?.groupVersion || '');
         } catch (error) {
             this.logger.error('Failed to get API versions', { error });
             return [];
@@ -213,9 +216,17 @@ export class KubernetesEnhancedService {
                 }
             };
 
-            await this.k8sApi.patchNamespace(name, patch, undefined, undefined, undefined, undefined, {
-                headers: { 'Content-Type': 'application/merge-patch+json' }
-            });
+            const options = { headers: { 'Content-Type': 'application/merge-patch+json' } };
+            await this.k8sApi.patchNamespace(
+                name,
+                patch,
+                undefined,
+                undefined,
+                undefined,
+                undefined,
+                undefined,
+                options
+            );
 
             this.logger.info('Namespace labels updated', { namespace: name, labels });
         } catch (error) {
@@ -405,12 +416,14 @@ export class KubernetesEnhancedService {
                 podName,
                 namespace,
                 undefined, // container
-                false, // follow
+                undefined, // follow
+                undefined, // insecureSkipTLSVerifyBackend
                 undefined, // limitBytes
                 undefined, // pretty
-                false, // previous
+                undefined, // previous
                 undefined, // sinceSeconds
-                lines // tailLines
+                lines, // tailLines
+                undefined // timestamps
             );
 
             return logsResponse.body;
