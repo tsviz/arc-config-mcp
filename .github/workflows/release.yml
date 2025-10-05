@@ -41,9 +41,26 @@ jobs:
       - name: ✅ Validate Policy Engine
         run: |
           node --input-type=module -e "
-            import('./build/engines/policy-engine.js').then(({ ArcPolicyEngine }) => {
-              const engine = new ArcPolicyEngine();
-              console.log('✅ Policy Engine: ' + engine.getRules().length + ' rules loaded');
+            Promise.all([
+              import('@kubernetes/client-node'),
+              import('./build/engines/policy-engine.js')
+            ]).then(([k8s, policyModule]) => {
+              const { KubeConfig } = k8s;
+              const { ArcPolicyEngine } = policyModule;
+              
+              // Create a mock KubeConfig for testing
+              const kc = new KubeConfig();
+              kc.loadFromString(JSON.stringify({
+                apiVersion: 'v1',
+                kind: 'Config',
+                clusters: [{ name: 'test-cluster', cluster: { server: 'https://test' } }],
+                users: [{ name: 'test-user', user: {} }],
+                contexts: [{ name: 'test-context', context: { cluster: 'test-cluster', user: 'test-user' } }],
+                'current-context': 'test-context'
+              }));
+              const engine = new ArcPolicyEngine(kc);
+              const rules = engine.getRules();
+              console.log('✅ Policy Engine: ' + rules.length + ' rules loaded');
             });
           "
 
@@ -51,8 +68,17 @@ jobs:
         run: |
           node --input-type=module -e "
             import('./build/utils/nl-intent.js').then(({ parseArcIntent }) => {
-              const result = parseArcIntent('Install ARC controller');
-              console.log('✅ NL Parser: Intent recognized as ' + result.intent);
+              const testCases = [
+                'Install ARC controller',
+                'Scale runners to 5',
+                'Check ARC compliance',
+                'List runner scale sets'
+              ];
+              testCases.forEach(cmd => {
+                const result = parseArcIntent(cmd);
+                if (result.intent === 'unknown') throw new Error('Failed to parse: ' + cmd);
+                console.log('✅ Parsed: ' + cmd + ' -> ' + result.intent);
+              });
             });
           "
 
@@ -138,12 +164,12 @@ jobs:
           $(git log --pretty=format:"- %s (%h)" $PREV_TAG..HEAD)
           
           ## Features Included
-          - ✅ Policy Engine with 12 ARC-specific rules
-          - ✅ Natural Language Processing (16 intents)
-          - ✅ AI-powered ARC installation
+          - ✅ Policy Engine with 11 ARC-specific governance rules
+          - ✅ Natural Language Processing (16 ARC intent patterns)
+          - ✅ AI-powered ARC installation and management
           - ✅ Comprehensive monitoring and troubleshooting
-          - ✅ GitHub Actions integration
-          - ✅ Docker registry support
+          - ✅ GitHub Actions integration with kubectl/helm
+          - ✅ Multi-architecture Docker registry support
           "
           
           echo "changelog<<CHANGELOG_EOF" >> "$GITHUB_OUTPUT"
@@ -195,11 +221,12 @@ jobs:
             ## ✨ Key Features
             
             - 🤖 **AI-Powered Operations**: Natural language ARC management
-            - 🛡️ **Policy Engine**: 12 built-in governance rules
+            - 🛡️ **Policy Engine**: 11 built-in ARC governance rules
             - 🚀 **Automated Installation**: AI-guided ARC deployment
             - 📊 **Monitoring**: Real-time cluster and runner status
             - 🔒 **Security**: Compliance checking and hardening
             - 💰 **Cost Optimization**: Resource management recommendations
+            - ☸️ **CLI Integration**: kubectl v1.34.1 + helm v3.16.4 included
             
             ${{ steps.changelog.outputs.changelog }}
           draft: false
