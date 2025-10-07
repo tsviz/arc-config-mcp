@@ -1,0 +1,41 @@
+apiVersion: actions.summerwind.dev/v1alpha1
+kind: RunnerDeployment
+metadata:
+  name: tsviz-runners
+  namespace: arc-systems
+spec:
+  replicas: 3
+  template:
+    spec:
+      organization: tsviz
+      labels:
+        - self-hosted
+        - linux
+        - x64
+      env:
+        - name: LOG_LEVEL
+          value: "info"
+      resources:
+        limits:
+          cpu: 1000m
+          memory: 2Gi
+        requests:
+          cpu: 500m
+          memory: 1Gi
+      nodeSelector:
+        kubernetes.io/os: linux
+---
+apiVersion: actions.summerwind.dev/v1alpha1
+kind: HorizontalRunnerAutoscaler
+metadata:
+  name: tsviz-runners-autoscaler
+  namespace: arc-systems
+spec:
+  scaleTargetRef:
+    name: tsviz-runners
+  minReplicas: 1
+  maxReplicas: 6
+  metrics:
+  - type: TotalNumberOfQueuedAndInProgressWorkflowRuns
+    repositoryNames:
+    - "tsviz/*"

@@ -42,6 +42,13 @@ export class CommandExecutor {
     }
 
     /**
+     * Execute a kubectl command silently (for expected failures)
+     */
+    async kubectlSilently(args: string, options?: CommandOptions): Promise<CommandResult> {
+        return this.executeSilently('kubectl', args, options);
+    }
+
+    /**
      * Execute a helm command
      */
     async helm(args: string, options?: CommandOptions): Promise<CommandResult> {
@@ -62,9 +69,13 @@ export class CommandExecutor {
         const fullCommand = `${command} ${args}`;
         const startTime = Date.now();
 
-        this.logger.info(`Executing command: ${fullCommand}`, {
+        // Redact sensitive information from logs
+        const sanitizedCommand = this.sanitizeCommand(fullCommand);
+        const sanitizedArgs = this.sanitizeCommand(args);
+
+        this.logger.info(`Executing command: ${sanitizedCommand}`, {
             command,
-            args,
+            args: sanitizedArgs,
             dryRun: options.dryRun || false
         });
 
@@ -121,14 +132,62 @@ export class CommandExecutor {
             };
 
             this.commandHistory.push(result);
-            this.logger.error(`Command failed`, {
-                command: fullCommand,
-                exitCode: result.exitCode,
-                stderr: result.stderr,
-                duration: `${duration}ms`
-            });
+            
+            // Use different logging level for expected vs critical failures
+            if (this.isExpectedFailure(fullCommand, result.stderr)) {
+                this.logger.info(`Command completed with expected failure`, {
+                    command: fullCommand,
+                    exitCode: result.exitCode,
+                    stderr: result.stderr,
+                    duration: `${duration}ms`
+                });
+            } else {
+                this.logger.error(`Command failed`, {
+                    command: fullCommand,
+                    exitCode: result.exitCode,
+                    stderr: result.stderr,
+                    duration: `${duration}ms`
+                });
+            }
 
             throw new Error(`Command failed: ${fullCommand}\n${result.stderr}`);
+        }
+    }
+
+    /**
+     * Execute a command silently (suppresses error logging for expected failures)
+     * Use this for operations that might fail due to resources not existing, etc.
+     */
+    async executeSilently(command: string, args: string, options: CommandOptions = {}): Promise<CommandResult> {
+        const fullCommand = `${command} ${args}`;
+        const startTime = Date.now();
+
+        // Create a silent logger that doesn't forward errors to progress reporter
+        const silentLogger = {
+            info: this.logger.info.bind(this.logger),
+            warn: this.logger.warn.bind(this.logger),
+            error: (message: string, meta?: any) => {
+                // Only log to base logger, don't trigger ChatAwareLogger.error()
+                if (this.logger.baseLogger) {
+                    this.logger.baseLogger.error(message, meta);
+                } else {
+                    // Fallback if not using ChatAwareLogger
+                    this.logger.error(message, meta);
+                }
+            }
+        };
+
+        // Temporarily swap logger
+        const originalLogger = this.logger;
+        this.logger = silentLogger;
+
+        try {
+            const result = await this.execute(command, args, options);
+            this.logger = originalLogger;
+            return result;
+        } catch (error) {
+            this.logger = originalLogger;
+            throw error;
         }
     }
 
@@ -201,6 +260,36 @@ export class CommandExecutor {
     }
 
     /**
+     * Sanitize commands by redacting sensitive information
+     */
+    private sanitizeCommand(command: string): string {
+        // Redact GitHub tokens (various patterns)
+        let sanitized = command.replace(/ghp_[a-zA-Z0-9]{36}/g, 'ghp_[REDACTED]');
+        
+        // Redact other common token patterns
+        sanitized = sanitized.replace(/ghs_[a-zA-Z0-9]{36}/g, 'ghs_[REDACTED]');
+        sanitized = sanitized.replace(/github_pat_[a-zA-Z0-9_]{22,255}/g, 'github_pat_[REDACTED]');
+        
+        // Redact from-literal patterns
+        sanitized = sanitized.replace(/--from-literal=github_token="[^"]*"/g, '--from-literal=github_token="[REDACTED]"');
+        sanitized = sanitized.replace(/--from-literal=github_token=[^\s]*/g, '--from-literal=github_token=[REDACTED]');
+        
+        // Redact environment variables
+        sanitized = sanitized.replace(/GITHUB_TOKEN=[^\s]*/g, 'GITHUB_TOKEN=[REDACTED]');
+        
+        // Redact Helm set values
+        sanitized = sanitized.replace(/--set\s+[^=]*\.token=[^\s]*/g, '--set auth.token=[REDACTED]');
+        sanitized = sanitized.replace(/--set\s+auth\.token=[^\s]*/g, '--set auth.token=[REDACTED]');
+        
+        // Redact password fields
+        sanitized = sanitized.replace(/--password\s+[^\s]*/g, '--password [REDACTED]');
+        sanitized = sanitized.replace(/--password=[^\s]*/g, '--password=[REDACTED]');
+        sanitized = sanitized.replace(/--docker-password=[^\s]*/g, '--docker-password=[REDACTED]');
+        
+        return sanitized;
+    }
+
+    /**
      * Get statistics about command execution
      */
     getStats(): {
@@ -223,5 +312,34 @@ export class CommandExecutor {
             averageDuration: Math.round(avgDuration),
             totalDuration
         };
+    }
+
+    /**
+     * Determine if a command failure is expected (like trying to delete non-existent resources)
+     */
+    private isExpectedFailure(command: string, stderr: string): boolean {
+        const expectedFailurePatterns = [
+            // Kubernetes not found errors
+            { command: 'kubectl.*get', error: 'not found' },
+            { command: 'kubectl.*delete', error: 'not found' },
+            { command: 'kubectl.*delete', error: 'No resources found' },
+            
+            // Helm not found errors
+            { command: 'helm.*delete', error: 'not found' },
+            { command: 'helm.*uninstall', error: 'not found' },
+            
+            // Already exists errors (race conditions)
+            { command: 'kubectl.*create', error: 'already exists' },
+            
+            // Resource already deleted (parallel operations)
+            { command: 'kubectl.*patch', error: 'not found' },
+            { command: 'kubectl.*annotate', error: 'not found' }
+        ];
+
+        return expectedFailurePatterns.some(pattern => {
+            const commandMatch = new RegExp(pattern.command, 'i').test(command);
+            const errorMatch = stderr.toLowerCase().includes(pattern.error.toLowerCase());
+            return commandMatch && errorMatch;
+        });
     }
 }

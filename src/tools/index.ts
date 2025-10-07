@@ -1,35 +1,40 @@
 /**
- * MCP Tools Registration
+ * MCP Tools     services.logger.info('Enhanced ARC MCP tools registered successfully');
+}
+
+// Keep the original tools as reference/backup but don't register them
+function registerOriginalArcToolsBackup(server: any, services: ServiceContext): void {ation
  * 
  * Registers all ARC management tools with the MCP server.
  */
 
 import type { ServiceContext } from '../types/arc.js';
+import { registerEnhancedArcTools } from './enhanced-tools.js';
 
 /**
- * Register all ARC management tools
+ * Register all ARC management tools with enhanced real-time capabilities
  */
 export function registerArcTools(server: any, services: ServiceContext): void {
+    // Register enhanced tools with real-time progress updates
+    registerEnhancedArcTools(server, services);
+    
+    // Original tools are replaced by enhanced versions - no need to register both
+    services.logger.info('Enhanced ARC MCP tools registered successfully');
+}
+
+/**
+ * Register original ARC management tools (fallback)
+ */
+function registerOriginalArcTools(server: any, services: ServiceContext): void {
     // Natural language processing tool
     server.registerTool(
         'arc_process_natural_language',
         {
             title: 'Process Natural Language ARC Command',
-            description: 'Process natural language commands for ARC operations like "Install ARC", "Scale runners", "Check status"',
-            inputSchema: {
-                query: {
-                    type: 'string',
-                    description: 'Natural language query about ARC operations'
-                }
-            },
-            outputSchema: {
-                action: { type: 'string' },
-                parameters: { type: 'object' },
-                confidence: { type: 'number' }
-            }
+            description: 'Process natural language commands for ARC operations like "Install ARC", "Scale runners", "Check status"'
         },
-        async ({ query }: { query: string }) => {
-            const result = await processNaturalLanguageQuery(query, services);
+        async (params: { query: string }) => {
+            const result = await processNaturalLanguageQuery(params.query, services);
             return {
                 content: [
                     {
@@ -47,17 +52,7 @@ export function registerArcTools(server: any, services: ServiceContext): void {
         'arc_install_controller',
         {
             title: 'Install ARC Controller',
-            description: 'Install GitHub Actions Runner Controller in Kubernetes cluster',
-            inputSchema: {
-                namespace: { type: 'string', default: 'arc-systems' },
-                version: { type: 'string', default: '0.27.6' },
-                certManager: { type: 'boolean', default: true }
-            },
-            outputSchema: {
-                success: { type: 'boolean' },
-                message: { type: 'string' },
-                details: { type: 'object' }
-            }
+            description: 'Install GitHub Actions Runner Controller in Kubernetes cluster'
         },
         async (params: any) => {
             const result = await services.installer.installController(params);
@@ -73,15 +68,9 @@ export function registerArcTools(server: any, services: ServiceContext): void {
         'arc_get_status',
         {
             title: 'Get ARC Status',
-            description: 'Get comprehensive status of ARC installation and runners',
-            inputSchema: {},
-            outputSchema: {
-                controller: { type: 'object' },
-                runners: { type: 'array' },
-                cluster: { type: 'object' }
-            }
+            description: 'Get comprehensive status of ARC installation and runners'
         },
-        async () => {
+        async (params: any) => {
             const result = await services.installer.getStatus();
             return {
                 content: [{ type: 'text', text: JSON.stringify(result, null, 2) }],
@@ -95,17 +84,7 @@ export function registerArcTools(server: any, services: ServiceContext): void {
         'arc_scale_runners',
         {
             title: 'Scale ARC Runners',
-            description: 'Scale GitHub Actions runners up or down',
-            inputSchema: {
-                scaleSetName: { type: 'string' },
-                replicas: { type: 'number', minimum: 0, maximum: 100 },
-                namespace: { type: 'string', default: 'arc-systems' }
-            },
-            outputSchema: {
-                success: { type: 'boolean' },
-                currentReplicas: { type: 'number' },
-                targetReplicas: { type: 'number' }
-            }
+            description: 'Scale GitHub Actions runners up or down'
         },
         async (params: any) => {
             services.logger.info('Scaling ARC runners', params);
@@ -122,13 +101,23 @@ export function registerArcTools(server: any, services: ServiceContext): void {
         }
     );
 
-    services.logger.info('ARC MCP tools registered successfully');
+    services.logger.info('All ARC MCP tools registered successfully (enhanced + original)');
 }
 
 /**
  * Process natural language queries for ARC operations
  */
 async function processNaturalLanguageQuery(query: string, services: ServiceContext): Promise<any> {
+    if (!query || typeof query !== 'string') {
+        return {
+            action: 'unknown',
+            parameters: {},
+            confidence: 0.0,
+            interpretation: 'Invalid or empty query provided',
+            suggestion: 'Try commands like "Install ARC", "Scale runners to 5", or "Check ARC status"'
+        };
+    }
+    
     const lowercaseQuery = query.toLowerCase();
 
     // Simple pattern matching for demo - would use proper NLP in production

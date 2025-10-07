@@ -45,3 +45,7 @@ temp/
 
 # Context/reference materials (not part of actual project)
 context-from-repo/
+
+# Development artifacts
+archived-docs/
+archived-tests/

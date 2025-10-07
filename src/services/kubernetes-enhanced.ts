@@ -7,6 +7,7 @@
 
 import * as k8s from '@kubernetes/client-node';
 import type { Logger } from 'winston';
+import type { IKubernetesService } from '../types/kubernetes.js';
 
 export interface ClusterInfo {
     version: string;
@@ -40,7 +41,7 @@ export interface NetworkPolicyInfo {
     labels: Record<string, string>;
 }
 
-export class KubernetesEnhancedService {
+export class KubernetesEnhancedService implements IKubernetesService {
     private kc: k8s.KubeConfig;
     private k8sApi: k8s.CoreV1Api;
     private appsApi: k8s.AppsV1Api;
@@ -589,6 +590,111 @@ export class KubernetesEnhancedService {
         } catch (error) {
             this.logger.error('Failed to delete Helm release', { releaseName, namespace, error });
             throw new Error(`Failed to delete Helm release ${releaseName}: ${error}`);
+        }
+    }
+
+    /**
+     * Apply Kubernetes manifest (compatibility method)
+     */
+    async applyManifest(manifest: any): Promise<any> {
+        await this.applyResource(manifest);
+        return {
+            applied: true,
+            resource: manifest
+        };
+    }
+
+    /**
+     * Delete a Kubernetes resource (compatibility method)
+     */
+    async deleteResource(namespace: string, name: string, resourceType: string): Promise<void> {
+        this.logger.info(`Deleting ${resourceType} ${name} in namespace ${namespace}`);
+        
+        try {
+            if (resourceType.toLowerCase() === 'namespace') {
+                await this.deleteNamespace(name);
+            } else if (resourceType.toLowerCase() === 'deployment') {
+                await this.appsApi.deleteNamespacedDeployment(name, namespace);
+            } else if (resourceType.toLowerCase() === 'secret') {
+                await this.k8sApi.deleteNamespacedSecret(name, namespace);
+            } else if (resourceType.toLowerCase() === 'configmap') {
+                await this.k8sApi.deleteNamespacedConfigMap(name, namespace);
+            } else {
+                // Try as custom resource
+                const parts = resourceType.split('/');
+                if (parts.length === 2) {
+                    const [group, version] = parts;
+                    const plural = `${resourceType.toLowerCase()}s`;
+                    await this.customObjectsApi.deleteNamespacedCustomObject(
+                        group, version, namespace, plural, name
+                    );
+                }
+            }
+        } catch (error) {
+            this.logger.error(`Failed to delete ${resourceType} ${name}`, { error });
+            throw error;
+        }
+    }
+
+    /**
+     * Scale deployment (compatibility method)
+     */
+    async scaleDeployment(namespace: string, name: string, replicas: number): Promise<void> {
+        try {
+            const patch = {
+                spec: {
+                    replicas: replicas
+                }
+            };
+
+            await this.appsApi.patchNamespacedDeployment(
+                name, 
+                namespace, 
+                patch,
+                undefined,
+                undefined,
+                undefined,
+                undefined,
+                undefined,
+                { headers: { 'Content-Type': 'application/merge-patch+json' } }
+            );
+
+            this.logger.info(`Scaled deployment ${name} to ${replicas} replicas`, { namespace });
+        } catch (error) {
+            this.logger.error(`Failed to scale deployment ${name}`, { namespace, replicas, error });
+            throw new Error(`Failed to scale deployment ${name}: ${error}`);
+        }
+    }
+
+    /**
+     * Execute kubectl command (compatibility method)
+     */
+    async execute(command: string): Promise<{ stdout: string; stderr: string; exitCode: number }> {
+        const { exec } = await import('child_process');
+        const { promisify } = await import('util');
+        const execAsync = promisify(exec);
+
+        try {
+            const fullCommand = command.startsWith('kubectl') ? command : `kubectl ${command}`;
+            const { stdout, stderr } = await execAsync(fullCommand, { 
+                maxBuffer: 1024 * 1024 * 10, // 10MB buffer
+                timeout: 30000 // 30 second timeout
+            });
+            
+            this.logger.debug('Kubectl command executed', { command: fullCommand, stdout: stdout.slice(0, 500) });
+            
+            return {
+                stdout: stdout || '',
+                stderr: stderr || '',
+                exitCode: 0
+            };
+        } catch (error: any) {
+            this.logger.error('Kubectl command failed', { command, error: error.message });
+            return {
+                stdout: error.stdout || '',
+                stderr: error.stderr || error.message || '',
+                exitCode: error.code || 1
+            };
         }
     }
 

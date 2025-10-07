@@ -1,6 +1,14 @@
-# ARC Config MCP Server
+# ARC Config MCP ## 🎯 Key Features
 
-> **🚀 AI-Powered GitHub Actions Runner Controller Management**
+- 🤖 **Natural Language Operations**: "Install ARC", "Scale runners", "Check status"
+- 🚀 **Automated Installation & Configuration**: Zero-config setup with enterprise security
+- 🔧 **Comprehensive Troubleshooting**: Auto-detection and resolution of common issues
+- 📊 **Intelligent Monitoring & Health Checks**: Real-time status with visual diagrams
+- 🛡️ **Built-in Security Policies & Compliance**: Enterprise-grade security out of the box
+- 💰 **Cost Optimization & Resource Management**: AI-driven scaling and resource optimization
+- 🛠️ **Advanced Troubleshooting & Self-healing**: Automatic recovery from common failures
+- 🧹 **Intelligent Cleanup & Uninstall**: Safe removal with comprehensive validation
+- 📱 **Real-time Progress Updates**: Live status updates directly in VS Code chat> **🚀 AI-Powered GitHub Actions Runner Controller Management**
 > 
 > A comprehensive TypeScript MCP (Model Context Protocol) server that transforms complex ARC operations into conversational AI interactions. Deploy, monitor, and manage GitHub Actions runners with natural language commands.
 
@@ -52,6 +60,7 @@ Add this configuration to your MCP client settings:
 - *"Install ARC controller in my cluster"*
 - *"Scale my runners to handle more load"* 
 - *"Check why my runners are failing"*
+- *"Cleanup ARC installation safely"*
 - *"Optimize costs for my GitHub Actions setup"*
 
 ---
@@ -77,6 +86,32 @@ npm install
 npm run build
 npm start -- --stdio  # For MCP protocol connection
 ```
+
+## 🔧 Enhanced Troubleshooting (NEW!)
+
+This version includes comprehensive troubleshooting capabilities based on real-world ARC deployment experience:
+
+### Automatically Resolved Issues
+- ✅ **Namespace Stuck Terminating**: Auto-removes finalizers and force-cleans orphaned resources
+- ✅ **Image Pull Authentication**: Handles GHCR auth failures with fallback strategies  
+- ✅ **cert-manager Issues**: Comprehensive validation and auto-recovery
+- ✅ **Helm Timeouts**: Intelligent retry and resource optimization
+- ✅ **Pod Security Violations**: Auto-configures security contexts
+- ✅ **Resource Finalizers**: Force removal of stuck custom resources
+- ✅ **GitHub Token Issues**: Validation and permission checking
+- ✅ **Network Policy Problems**: Auto-adjusts connectivity rules
+
+### Self-Healing Installation
+```bash
+# The MCP server now automatically handles scenarios like:
+# - Stuck namespaces from previous failed installations
+# - Image pull authentication failures
+# - Resource finalizer conflicts
+# - Certificate manager readiness issues
+# - Pod security standard violations
+```
+
+**See [Enhanced Troubleshooting Guide](docs/ENHANCED_TROUBLESHOOTING.md) for complete details.**
 
 ## 🎭 Natural Language Examples
 
@@ -130,13 +165,16 @@ Transform complex ARC operations into simple conversations:
 ## 🛠️ Complete Tool Catalog
 
 ### 🎯 Core ARC Operations
-| Tool                     | Purpose                    | Example Usage                |
-| ------------------------ | -------------------------- | ---------------------------- |
-| `arc_install_controller` | Deploy ARC to Kubernetes   | Install with custom config   |
-| `arc_get_status`         | Comprehensive health check | Monitor all components       |
-| `arc_scale_runners`      | Horizontal runner scaling  | Handle load spikes           |
-| `arc_manage_runners`     | Full lifecycle management  | Create/update/delete runners |
-| `arc_validate_policies`  | Policy compliance check    | Ensure security standards    |
+| Tool                         | Purpose                    | Example Usage                |
+| ---------------------------- | -------------------------- | ---------------------------- |
+| `arc_install_controller`     | Deploy ARC to Kubernetes   | Install with custom config   |
+| `arc_get_status`             | Comprehensive health check | Monitor all components       |
+| `arc_scale_runners`          | Horizontal runner scaling  | Handle load spikes           |
+| `arc_manage_runners`         | Full lifecycle management  | Create/update/delete runners |
+| `arc_cleanup_installation`   | Safe ARC cleanup/uninstall | Remove ARC with AI guidance  |
+| `arc_validate_policies`      | Policy compliance check    | Ensure security standards    |
+
+> **🛡️ Safety Note**: Cleanup functionality is **disabled by default**. Set `CLEANUP_ARC=true` environment variable to enable. See [Cleanup Documentation](docs/CLEANUP_FUNCTIONALITY.md) for details.
 
 ### 🤖 AI-Powered Features
 | Tool                           | Purpose                  | Example Usage                |
@@ -203,6 +241,7 @@ ENABLE_METRICS=true
 ENABLE_POLICY_VALIDATION=true
 SECURITY_PROFILE=standard  # basic|standard|strict
 AUTO_FIX_VIOLATIONS=false
+CLEANUP_ARC=false  # Enable ARC cleanup/uninstall functionality (disabled by default for safety)
 
 # Performance Tuning
 MAX_CONCURRENT_OPERATIONS=5

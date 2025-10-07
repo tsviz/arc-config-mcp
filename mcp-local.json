@@ -1,0 +1,17 @@
+{
+    "mcpServers": {
+        "arc-config": {
+            "command": "node",
+            "args": [
+                "build/index.js"
+            ],
+            "cwd": "/Users/tsvi/git_projects/tsviz/arc-config-mcp",
+            "env": {
+                "GITHUB_TOKEN": "${GITHUB_TOKEN}",
+                "GITHUB_ORG": "${GITHUB_ORG}",
+                "LOG_LEVEL": "info",
+                "ENABLE_METRICS": "true"
+            }
+        }
+    }
+}

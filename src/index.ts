@@ -16,6 +16,7 @@ import { config } from 'dotenv';
 import { createLogger, format, transports } from 'winston';
 import { ArcInstaller } from './services/arc-installer.js';
 import { KubernetesService } from './services/kubernetes.js';
+import { KubernetesEnhancedService } from './services/kubernetes-enhanced.js';
 import { GitHubService } from './services/github.js';
 import { PolicyService } from './services/policy.js';
 import { registerArcTools } from './tools/index.js';
@@ -88,7 +89,7 @@ function createMcpServer(): McpServer {
     );
 
     // Initialize services
-    const kubernetesService = new KubernetesService(logger);
+    const kubernetesService = new KubernetesEnhancedService(logger);
     const githubService = new GitHubService(logger);
     const policyService = new PolicyService(logger);
     const arcInstaller = new ArcInstaller(kubernetesService, githubService, logger);

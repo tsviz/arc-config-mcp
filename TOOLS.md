@@ -26,7 +26,7 @@ Args: { "filter": "install" }
 
 | Category                         | Tools                                    | Purpose                             |
 | -------------------------------- | ---------------------------------------- | ----------------------------------- |
-| **🎯 Core ARC Operations**        | install, status, scale, manage           | Essential ARC lifecycle management  |
+| **🎯 Core ARC Operations**        | install, status, scale, manage, cleanup  | Essential ARC lifecycle management  |
 | **🤖 AI-Powered Features**        | natural_language, troubleshoot, optimize | Intelligent automation and analysis |
 | **🔒 Security & Compliance**      | validate_policies, security_scan, audit  | Policy enforcement and security     |
 | **📊 Monitoring & Insights**      | health_check, metrics, reports           | Observability and analytics         |
@@ -114,6 +114,37 @@ interface ManageParams {
 }
 ```
 
+#### `arc_cleanup_installation`
+**Purpose**: Comprehensive ARC cleanup and uninstallation with AI-guided safety checks  
+**Use Cases**: Environment cleanup, cluster decommissioning, fresh installs
+
+```typescript
+interface CleanupParams {
+  cleanup?: boolean;           // Enable cleanup (overrides CLEANUP_ARC env var)
+  namespace?: string;          // Target namespace (default: arc-systems)
+  preserveData?: boolean;      // Backup secrets before removal (default: false)
+  dryRun?: boolean;           // Preview mode without execution (default: false)
+  force?: boolean;            // Force cleanup of large installations (default: false)
+  forceNamespaceRemoval?: boolean; // Force namespace removal (default: false)
+}
+```
+
+**🛡️ Safety Features**:
+- **Disabled by default**: Requires `CLEANUP_ARC=true` environment variable
+- **AI-guided validation**: Comprehensive pre-cleanup safety analysis
+- **Real-time progress**: Live updates with visual progress indicators
+- **Graceful shutdown**: Proper termination of running workflows
+- **Selective cleanup**: Choose which components to remove/preserve
+- **Dry run mode**: Preview all changes without execution
+
+**Example Operations**:
+- Complete ARC removal for cluster migration
+- Cleanup failed installations for fresh start
+- Selective component removal for upgrades
+- Safe environment decommissioning
+
+> **⚠️ Important**: This tool is disabled by default for safety. Enable with `CLEANUP_ARC=true` environment variable. See [Cleanup Documentation](docs/CLEANUP_FUNCTIONALITY.md) for full details.
+
 ### 🤖 AI-Powered Features
 
 #### `arc_process_natural_language`
@@ -133,6 +164,9 @@ interface NLProcessParams {
 - *"Install ARC with security settings for production"*
 - *"Scale my repo runners to handle the evening deployment rush"*
 - *"Check why my runners are failing and fix the issues"*
+- *"Cleanup ARC installation safely with backup"*
+- *"Uninstall ARC but preserve my configuration data"*
+- *"Remove ARC completely and clean up the namespace"*
 - *"Optimize costs by reducing unnecessary runner overhead"*
 - *"Show me a compliance report for SOC2 requirements"*
 

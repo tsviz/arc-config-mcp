@@ -74,6 +74,12 @@ RUN addgroup -g 1001 -S mcp && \
 RUN mkdir -p /home/mcp/.kube && \
     chown -R mcp:mcp /home/mcp
 
+# Pre-configure Helm repositories as mcp user
+USER mcp
+RUN helm repo add actions-runner-controller https://actions-runner-controller.github.io/actions-runner-controller && \
+    helm repo add jetstack https://charts.jetstack.io && \
+    helm repo update
+
 USER mcp
 
 # Health check

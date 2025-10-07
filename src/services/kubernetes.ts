@@ -6,8 +6,9 @@
  */
 
 import type { Logger } from 'winston';
+import type { IKubernetesService } from '../types/kubernetes.js';
 
-export class KubernetesService {
+export class KubernetesService implements IKubernetesService {
     private logger: Logger;
 
     constructor(logger: Logger) {

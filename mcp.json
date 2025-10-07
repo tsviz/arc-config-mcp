@@ -1,0 +1,26 @@
+{
+    "mcpServers": {
+        "arc-config": {
+            "command": "docker",
+            "args": [
+                "run",
+                "--rm",
+                "-i",
+                "--network=host",
+                "-v", "/home/${USER}/.kube:/home/mcp/.kube:ro",
+                "-e", "KUBECONFIG=/home/mcp/.kube/config",
+                "-e", "GITHUB_TOKEN=${GITHUB_TOKEN}",
+                "-e", "GITHUB_ORG=${GITHUB_ORG:-}",
+                "-e", "LOG_LEVEL=${LOG_LEVEL:-info}",
+                "-e", "ENABLE_METRICS=${ENABLE_METRICS:-true}",
+                "arc-config-mcp:local-dev-1759840554"
+            ],
+            "env": {
+                "GITHUB_TOKEN": "${GITHUB_TOKEN}",
+                "GITHUB_ORG": "${GITHUB_ORG}",
+                "LOG_LEVEL": "info",
+                "ENABLE_METRICS": "true"
+            }
+        }
+    }
+}
