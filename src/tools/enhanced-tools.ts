@@ -8,6 +8,7 @@
 import type { ServiceContext } from '../types/arc.js';
 import { createProgressReporter, formatProgressForChat, ChatAwareLogger, type ProgressUpdate } from '../utils/progress-reporter.js';
 import { EnhancedArcInstaller } from '../services/arc-installer-enhanced.js';
+import { z } from 'zod';
 
 /**
  * Register enhanced ARC tools with real-time progress updates
@@ -18,7 +19,12 @@ export function registerEnhancedArcTools(server: any, services: ServiceContext):
         'arc_install_controller',
         {
             title: 'Install ARC Controller with Real-time Progress',
-            description: 'Install GitHub Actions Runner Controller in Kubernetes cluster with live status updates in chat'
+            description: 'Install GitHub Actions Runner Controller in Kubernetes cluster with live status updates in chat',
+            inputSchema: {
+                namespace: z.string().optional().describe("Kubernetes namespace (defaults to arc-systems)"),
+                version: z.string().optional().describe("ARC version to install (defaults to latest)"),
+                enableRealTimeLogging: z.boolean().optional().describe("Enable real-time logging (defaults to true)")
+            }
         },
         async (params: any) => {
             let progressUpdates: string[] = [];
@@ -183,7 +189,11 @@ To deploy 3 runners with auto-scaling, you can say:
         'arc_get_status',
         {
             title: 'Get ARC Status with Visual Diagrams',
-            description: 'Get comprehensive status of ARC installation with real-time visual diagrams'
+            description: 'Get comprehensive status of ARC installation with real-time visual diagrams',
+            inputSchema: {
+                namespace: z.string().optional().describe("Kubernetes namespace (defaults to arc-systems)"),
+                includeVisualDiagram: z.boolean().optional().describe("Include visual diagram (defaults to true)")
+            }
         },
         async (params: any) => {
             try {
@@ -283,7 +293,10 @@ To deploy 3 runners with auto-scaling, you can say:
         'arc_process_natural_language',
         {
             title: 'Process Natural Language ARC Commands',
-            description: 'Process natural language commands for ARC operations with intelligent interpretation'
+            description: 'Process natural language commands for ARC operations with intelligent interpretation',
+            inputSchema: {
+                query: z.string().describe("Natural language command or query")
+            }
         },
         async (params: { query: string }) => {
             const result = await processNaturalLanguageQuery(params.query, services);
@@ -323,7 +336,12 @@ To deploy 3 runners with auto-scaling, you can say:
         'arc_scale_runners',
         {
             title: 'Scale ARC Runners',
-            description: 'Scale GitHub Actions runners with intelligent recommendations'
+            description: 'Scale GitHub Actions runners with intelligent recommendations',
+            inputSchema: {
+                replicas: z.number().describe("Target number of runner replicas"),
+                runnerName: z.string().optional().describe("Name of specific runner deployment to scale"),
+                namespace: z.string().optional().describe("Kubernetes namespace (defaults to arc-systems)")
+            }
         },
         async (params: any) => {
             services.logger.info('🔄 Scaling ARC runners with AI optimization', params);
@@ -368,7 +386,11 @@ To deploy 3 runners with auto-scaling, you can say:
         'arc_analyze_cleanup_state',
         {
             title: 'Analyze ARC Cleanup State',
-            description: 'Comprehensive analysis of current ARC installation state with detailed report and visual diagram before cleanup'
+            description: 'Comprehensive analysis of current ARC installation state with detailed report and visual diagram before cleanup',
+            inputSchema: {
+                namespace: z.string().optional().describe("Kubernetes namespace (defaults to arc-systems)"),
+                includeVisualDiagram: z.boolean().optional().describe("Include visual diagram (defaults to true)")
+            }
         },
         async (params: any) => {
             let progressUpdates: string[] = [];
@@ -522,7 +544,12 @@ To deploy 3 runners with auto-scaling, you can say:
         'arc_cleanup_installation', 
         {
             title: 'Cleanup/Uninstall ARC with Real-time Progress',
-            description: 'Comprehensive cleanup and uninstallation of ARC with AI-guided safety checks and live progress updates'
+            description: 'Comprehensive cleanup and uninstallation of ARC with AI-guided safety checks and live progress updates',
+            inputSchema: {
+                namespace: z.string().optional().describe("Kubernetes namespace (defaults to arc-systems)"),
+                dryRun: z.boolean().optional().describe("Perform dry run only (defaults to false)"),
+                force: z.boolean().optional().describe("Force cleanup even with errors (defaults to false)")
+            }
         },
         async (params: any) => {
             let progressUpdates: string[] = [];
@@ -721,7 +748,13 @@ To deploy 3 runners with auto-scaling, you can say:
         'arc_deploy_runners',
         {
             title: 'Deploy ARC Runners with Real-time Progress',
-            description: 'Deploy GitHub Actions runners with AI optimization and live status updates'
+            description: 'Deploy GitHub Actions runners with AI optimization and live status updates',
+            inputSchema: {
+                organization: z.string().optional().describe("GitHub organization name"),
+                replicas: z.number().optional().describe("Number of runner replicas to deploy"),
+                runnerName: z.string().optional().describe("Custom name for the runner deployment"),
+                namespace: z.string().optional().describe("Kubernetes namespace (defaults to arc-systems)")
+            }
         },
         async (params: any) => {
             let progressUpdates: string[] = [];
@@ -748,7 +781,37 @@ To deploy 3 runners with auto-scaling, you can say:
                     aiInsight: 'Generating intelligent runner configuration for your organization'
                 });
                 
-                const organization = params.organization || process.env.GITHUB_ORG || 'tsviz';
+                // Enhanced organization validation and auto-detection
+                let organization = params.organization || process.env.GITHUB_ORG;
+                
+                // If no organization specified, try to detect from existing working deployments
+                if (!organization) {
+                    progressReporter.updateProgress({
+                        phase: 'Organization Detection',
+                        progress: 5,
+                        message: 'Auto-detecting GitHub organization...',
+                        timestamp: new Date().toISOString(),
+                        aiInsight: 'Scanning existing runner deployments for organization hints'
+                    });
+                    
+                    try {
+                        const existingDeployments = await services.kubernetes.exec('kubectl', [
+                            'get', 'runnerdeployments', '-n', 'arc-systems', '-o', 'jsonpath={.items[*].spec.template.spec.organization}'
+                        ]);
+                        
+                        if (existingDeployments.stdout.trim()) {
+                            const orgs = existingDeployments.stdout.trim().split(' ').filter(Boolean);
+                            organization = orgs[0]; // Use first found organization
+                            services.logger.info(`Auto-detected organization: ${organization}`);
+                        }
+                    } catch (e) {
+                        services.logger.warn('Could not auto-detect organization, using default');
+                    }
+                }
+                
+                // Final fallback
+                organization = organization || 'tsvi-solutions';
+                
                 const replicas = params.replicas || 3;
                 // Use RUNNER_LABEL environment variable if set, otherwise fallback to organization-based naming
                 const runnerLabel = process.env.RUNNER_LABEL || `${organization}-runners`;
@@ -956,7 +1019,34 @@ spec:
                 
             } catch (error) {
                 const errorMessage = error instanceof Error ? error.message : String(error);
-                progressReporter.error(`Runner deployment failed: ${errorMessage}`);
+                
+                // Enhanced error handling with specific guidance
+                let enhancedErrorMessage = `Runner deployment failed: ${errorMessage}`;
+                let recoverySteps = '';
+                
+                // Detect common error patterns and provide specific guidance
+                if (errorMessage.includes('404') && errorMessage.includes('github.com/orgs/')) {
+                    const orgMatch = errorMessage.match(/github\.com\/orgs\/([^\/]+)/);
+                    const failedOrg = orgMatch ? orgMatch[1] : 'unknown';
+                    
+                    enhancedErrorMessage = `❌ **GitHub Organization Access Error**\n\nThe organization '${failedOrg}' is not accessible with the current GitHub token.\n\n`;
+                    recoverySteps = `## 🔧 **Recovery Steps:**\n\n` +
+                        `1. **Check organization name**: Verify '${failedOrg}' is correct\n` +
+                        `2. **Verify token access**: Ensure your GitHub token has access to this organization\n` +
+                        `3. **Try auto-detection**: Run deployment without specifying organization to auto-detect\n` +
+                        `4. **Use working organization**: Try 'tsvi-solutions' which is known to work\n\n` +
+                        `💡 **Tip**: The MCP server can auto-detect the correct organization from existing deployments if you don't specify one.`;
+                } else if (errorMessage.includes('secret') && errorMessage.includes('controller-manager')) {
+                    enhancedErrorMessage = `❌ **GitHub Token Configuration Error**\n\nThe GitHub token secret is not properly configured.\n\n`;
+                    recoverySteps = `## 🔧 **Recovery Steps:**\n\n` +
+                        `1. **Check secret**: \`kubectl get secret controller-manager -n arc-systems\`\n` +
+                        `2. **Verify token**: Ensure your GitHub token is valid and has correct permissions\n` +
+                        `3. **Reinstall ARC**: Consider reinstalling ARC with the correct token`;
+                }
+                
+                const fullErrorMessage = enhancedErrorMessage + '\n' + recoverySteps;
+                
+                progressReporter.error(fullErrorMessage);
                 
                 const finalContent = progressUpdates.join('\n---\n\n');
                 
@@ -978,7 +1068,13 @@ spec:
         'arc_manage_runners',
         {
             title: 'Manage ARC Runners',
-            description: 'List, scale, and manage GitHub Actions runners with real-time updates'
+            description: 'List, scale, and manage GitHub Actions runners with real-time updates',
+            inputSchema: {
+                action: z.string().optional().describe("Action to perform: list, scale, status"),
+                namespace: z.string().optional().describe("Kubernetes namespace (defaults to arc-systems)"),
+                replicas: z.number().optional().describe("Number of replicas for scaling operations"),
+                runnerName: z.string().optional().describe("Name of specific runner deployment to manage")
+            }
         },
         async (params: any) => {
             try {
@@ -988,10 +1084,11 @@ spec:
                 let content = `# 🏃‍♂️ ARC Runner Management\n\n`;
                 
                 if (action === 'list' || action === 'status') {
-                    // Get runner deployments using kubectl (the real implementation)
+                    // Enhanced runner status collection with pod information
                     let runnerDeployments = [];
                     let runners = [];
                     let autoscalers = [];
+                    let pods = [];
                     
                     try {
                         const deploymentResult = await services.installer.commandExecutor.kubectl(`get runnerdeployments -n ${namespace} -o json`);
@@ -1015,6 +1112,15 @@ spec:
                         autoscalers = autoscalerData.items || [];
                     } catch (error) {
                         services.logger.warn('Could not get autoscalers', { error });
+                    }
+                    
+                    // Get pod status for enhanced reporting
+                    try {
+                        const podResult = await services.installer.commandExecutor.kubectl(`get pods -n ${namespace} -l app.kubernetes.io/name=actions-runner -o json`);
+                        const podData = JSON.parse(podResult.stdout);
+                        pods = podData.items || [];
+                    } catch (error) {
+                        services.logger.warn('Could not get runner pods', { error });
                     }
                     
                     content += `## 📊 Runner Deployments\n\n`;
@@ -1103,6 +1209,7 @@ spec:
  * Helper functions for enhanced display
  */
 function getStatusEmoji(status: string): string {
+    if (!status) return '⚪'; // Default for undefined/null status
     switch (status.toLowerCase()) {
         case 'healthy':
         case 'running':
