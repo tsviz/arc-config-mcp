@@ -49,3 +49,11 @@ context-from-repo/
 # Development artifacts
 archived-docs/
 archived-tests/
+examples/deprecated/
+
+# Temporary development files
+*.tmp
+*.temp
+test-*.js
+debug-*.js
+demo-*.sh

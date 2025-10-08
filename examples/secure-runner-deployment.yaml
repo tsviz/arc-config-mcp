@@ -1,0 +1,261 @@
+# Secure ARC Runner Configuration Example
+# This example shows best practices for security-hardened GitHub Actions runners
+
+apiVersion: actions.sumologic.com/v1alpha1
+kind: RunnerScaleSet
+metadata:
+  name: production-secure-runners
+  namespace: arc-systems
+  labels:
+    app.kubernetes.io/name: github-actions-runner
+    app.kubernetes.io/component: runner
+    environment: production
+    security-tier: high
+    compliance.arc.io/soc2-certified: "true"
+    compliance.arc.io/framework: "SOC2-TypeII"
+  annotations:
+    # Security scanning annotations (new policies)
+    security.arc.io/image-scanned: "true"
+    security.arc.io/scan-timestamp: "2024-10-07T12:00:00Z"
+    security.arc.io/critical-vulns: "0"
+    security.arc.io/high-vulns: "0"
+    security.arc.io/scanner: "trivy"
+    
+    # Authentication method (new policy)
+    security.arc.io/auth-method: "oidc"
+    security.arc.io/token-rotation: "enabled"
+    
+    # Network security (new policy)
+    security.arc.io/network-policy: "enforced"
+    security.arc.io/egress-restricted: "true"
+    
+    # Supply chain security (new policy)
+    security.arc.io/actions-pinned: "true"
+    security.arc.io/dependency-scanning: "enabled"
+    
+    # Access control (new policy)
+    security.arc.io/access-expires: "2024-10-07T20:00:00Z"
+    security.arc.io/access-justification: "Production deployment pipeline"
+    security.arc.io/approver: "security-team@company.com"
+    
+    # Monitoring and audit (new policy)
+    monitoring.arc.io/audit-enabled: "true"
+    monitoring.arc.io/security-agent: "enabled"
+    
+spec:
+  # GitHub configuration - scoped to specific repo for security
+  githubConfigUrl: "https://github.com/your-org/your-specific-repo"
+  githubConfigSecret:
+    name: github-oidc-secret  # OIDC-based authentication
+  
+  # Runner group for organization
+  runnerGroup: "production-runners"
+  
+  # Scaling configuration
+  minReplicas: 2
+  maxReplicas: 10
+  
+  # Pod template with comprehensive security
+  template:
+    spec:
+      # Pod-level security context (required by arc-sec-001)
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+        
+      # Service account with minimal permissions
+      serviceAccountName: arc-runner-sa
+      
+      # Runner container with security hardening
+      containers:
+      - name: runner
+        image: ghcr.io/actions/actions-runner:2.310.2@sha256:8b9f1e8e10e4db1d1e1b7e2a3c4b5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e  # SHA pinned
+        
+        # Container-level security context (required by arc-sec-002)
+        securityContext:
+          allowPrivilegeEscalation: false
+          privileged: false  # Explicitly denied by policy
+          readOnlyRootFilesystem: true
+          runAsNonRoot: true
+          runAsUser: 1000
+          capabilities:
+            drop:
+            - ALL
+            add:
+            - NET_BIND_SERVICE  # Only if needed
+            
+        # Resource limits (required by arc-res-001)
+        resources:
+          limits:
+            cpu: "2"      # Under 4 cores (arc-res-002)
+            memory: "4Gi"
+            ephemeral-storage: "10Gi"
+          requests:
+            cpu: "500m"
+            memory: "1Gi"
+            ephemeral-storage: "5Gi"
+            
+        # Environment variables for security monitoring
+        env:
+        - name: RUNNER_LABELS
+          value: "production,secure,monitored"
+        - name: ALLOWED_EGRESS_DOMAINS
+          value: "github.com,api.github.com,registry-1.docker.io"
+        - name: NETWORK_MONITORING_ENABLED
+          value: "true"
+        - name: SECURITY_AGENT_ENABLED
+          value: "true"
+        - name: ACTIONS_RUNNER_REQUIRE_JOB_CONTAINER
+          value: "true"  # Force job isolation
+        
+        # Volume mounts for read-only filesystem
+        volumeMounts:
+        - name: tmp
+          mountPath: /tmp
+        - name: var-tmp
+          mountPath: /var/tmp
+        - name: runner-tmp
+          mountPath: /home/runner/_work
+          
+      # Volumes for writable directories
+      volumes:
+      - name: tmp
+        emptyDir: {}
+      - name: var-tmp
+        emptyDir: {}
+      - name: runner-tmp
+        emptyDir:
+          sizeLimit: "20Gi"
+          
+      # Node selection for security-hardened nodes
+      nodeSelector:
+        node-security-tier: "high"
+        kubernetes.io/arch: "amd64"
+        
+      # Tolerations for dedicated runner nodes
+      tolerations:
+      - key: "runners-only"
+        operator: "Equal"
+        value: "true"
+        effect: "NoSchedule"
+        
+      # Anti-affinity to spread runners across nodes
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 100
+            podAffinityTerm:
+              labelSelector:
+                matchExpressions:
+                - key: app.kubernetes.io/name
+                  operator: In
+                  values:
+                  - github-actions-runner
+              topologyKey: kubernetes.io/hostname
+
+---
+# Service Account with minimal RBAC
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: arc-runner-sa
+  namespace: arc-systems
+  labels:
+    app.kubernetes.io/name: arc-runner-service-account
+
+---
+# Minimal RBAC permissions
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: arc-runner-role
+  namespace: arc-systems
+rules:
+- apiGroups: [""]
+  resources: ["pods"]
+  verbs: ["get", "list"]  # Read-only access
+- apiGroups: [""]
+  resources: ["secrets"]
+  verbs: ["get"]
+  resourceNames: ["github-oidc-secret"]  # Specific secret only
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: arc-runner-rolebinding
+  namespace: arc-systems
+subjects:
+- kind: ServiceAccount
+  name: arc-runner-sa
+  namespace: arc-systems
+roleRef:
+  kind: Role
+  name: arc-runner-role
+  apiGroup: rbac.authorization.k8s.io
+
+---
+# Network Policy for traffic isolation
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: arc-runner-network-policy
+  namespace: arc-systems
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: github-actions-runner
+  policyTypes:
+  - Ingress
+  - Egress
+  ingress:
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          name: arc-systems
+  egress:
+  # Allow HTTPS to GitHub and Docker registry
+  - to: []
+    ports:
+    - protocol: TCP
+      port: 443
+  # Allow DNS resolution
+  - to:
+    - namespaceSelector:
+        matchLabels:
+          name: kube-system
+    ports:
+    - protocol: TCP
+      port: 53
+    - protocol: UDP
+      port: 53
+  # Block all other egress traffic
+
+---
+# Pod Security Policy (if using PSP)
+apiVersion: policy/v1beta1
+kind: PodSecurityPolicy
+metadata:
+  name: arc-runner-psp
+spec:
+  privileged: false
+  allowPrivilegeEscalation: false
+  requiredDropCapabilities:
+  - ALL
+  volumes:
+  - 'emptyDir'
+  - 'secret'
+  - 'configMap'
+  runAsUser:
+    rule: 'MustRunAsNonRoot'
+  seLinux:
+    rule: 'RunAsAny'
+  fsGroup:
+    rule: 'MustRunAs'
+    ranges:
+    - min: 1000
+      max: 1000

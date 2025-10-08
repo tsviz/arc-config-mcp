@@ -1,0 +1,22 @@
+name: ARC Parallel Scaling Test
+
+on:
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: tsvi-runners
+    strategy:
+      matrix:
+        job: [one, two, three, four, five, six, seven, eight, nine, ten, eleven, twelve, thirteen, fourteen, fifteen, sixteen, seventeen, eighteen, nineteen, twenty]
+    steps:
+      - name: Show runner info
+        run: echo "Job ${{ matrix.job }} running on $RUNNER_NAME"
+      - name: Setup .NET 8
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+      - name: Simulate workload
+        run: sleep 30
+      - name: .NET Info
+        run: dotnet --info

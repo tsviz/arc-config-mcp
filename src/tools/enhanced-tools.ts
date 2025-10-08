@@ -544,12 +544,7 @@ To deploy 3 runners with auto-scaling, you can say:
         'arc_cleanup_installation', 
         {
             title: 'Cleanup/Uninstall ARC with Real-time Progress',
-            description: 'Comprehensive cleanup and uninstallation of ARC with AI-guided safety checks and live progress updates',
-            inputSchema: {
-                namespace: z.string().optional().describe("Kubernetes namespace (defaults to arc-systems)"),
-                dryRun: z.boolean().optional().describe("Perform dry run only (defaults to false)"),
-                force: z.boolean().optional().describe("Force cleanup even with errors (defaults to false)")
-            }
+            description: 'Comprehensive cleanup and uninstallation of ARC with AI-guided safety checks and live progress updates'
         },
         async (params: any) => {
             let progressUpdates: string[] = [];

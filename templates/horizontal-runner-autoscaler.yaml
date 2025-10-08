@@ -1,0 +1,12 @@
+apiVersion: actions.summerwind.dev/v1alpha1
+kind: HorizontalRunnerAutoscaler
+metadata:
+  name: arc-runners-autoscaler
+  namespace: arc-systems
+spec:
+  scaleTargetRef:
+    name: arc-runners
+  minReplicas: 2
+  maxReplicas: 10
+  metrics:
+    - type: TotalNumberOfQueuedAndInProgressWorkflowRuns

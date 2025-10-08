@@ -1,0 +1,23 @@
+apiVersion: actions.summerwind.dev/v1alpha1
+kind: RunnerDeployment
+metadata:
+  name: arc-runners
+  namespace: arc-systems
+spec:
+  replicas: 2
+  template:
+    spec:
+      organization: <GITHUB_ORG>
+      env:
+        - name: RUNNER_FEATURE_FLAG_EPHEMERAL
+          value: "true"
+      resources:
+        limits:
+          cpu: "2.0"
+          memory: "1Gi"
+        requests:
+          cpu: "100m"
+          memory: "64Mi"
+      envFrom:
+        - secretRef:
+            name: controller-manager
