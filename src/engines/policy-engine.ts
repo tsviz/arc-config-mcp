@@ -547,13 +547,13 @@ export class ArcPolicyEngine {
         try {
             const response = await this.customApi.getNamespacedCustomObject(
                 'actions.sumologic.com',
-                'v1alpha1',
+                'v1alpha1', 
                 namespace,
                 'runnerscalesets',
                 runnerScaleSetName
             );
 
-            return this.evaluateResource(response.body, 'runnerscaleset');
+            return this.evaluateResource((response as any).body || response, 'runnerscaleset');
         } catch (error) {
             throw new Error(`Failed to evaluate RunnerScaleSet: ${error}`);
         }
@@ -797,14 +797,14 @@ export class ArcPolicyEngine {
                     namespace,
                     'runnerscalesets'
                 );
-                runnerScaleSets = (response.body as any).items || [];
+                runnerScaleSets = ((response as any).body || response)?.items || [];
             } else {
                 const response = await this.customApi.listClusterCustomObject(
                     'actions.sumologic.com',
                     'v1alpha1',
                     'runnerscalesets'
                 );
-                runnerScaleSets = (response.body as any).items || [];
+                runnerScaleSets = ((response as any).body || response)?.items || [];
             }
 
             const allResults: PolicyEvaluationResult[] = [];

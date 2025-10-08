@@ -75,10 +75,10 @@ export class KubernetesEnhancedService implements IKubernetesService {
             const versionApi = this.kc.makeApiClient(k8s.VersionApi);
             const versionResponse = await versionApi.getCode();
             const nodesResponse = await this.k8sApi.listNode();
-            const nodes = nodesResponse.body.items;
+            const nodes = (nodesResponse as any).body?.items || (nodesResponse as any).items || [];
 
-            const readyNodes = nodes.filter(node =>
-                node.status?.conditions?.some(condition =>
+            const readyNodes = nodes.filter((node: any) =>
+                node.status?.conditions?.some((condition: any) =>
                     condition.type === 'Ready' && condition.status === 'True'
                 )
             ).length;
@@ -115,7 +115,7 @@ export class KubernetesEnhancedService implements IKubernetesService {
             }
 
             return {
-                version: versionResponse.body.gitVersion || 'unknown',
+                version: (versionResponse as any).body?.gitVersion || (versionResponse as any).gitVersion || 'unknown',
                 currentContext: this.kc.getCurrentContext(),
                 nodeCount: nodes.length,
                 readyNodes,
@@ -135,7 +135,8 @@ export class KubernetesEnhancedService implements IKubernetesService {
         try {
             const apisApi = this.kc.makeApiClient(k8s.ApisApi);
             const response = await apisApi.getAPIVersions();
-            return response.body.groups.map(g => g.preferredVersion?.groupVersion || '');
+            const groups = (response as any).body?.groups || (response as any).groups || [];
+            return groups.map((g: any) => g.preferredVersion?.groupVersion || '');
         } catch (error) {
             this.logger.error('Failed to get API versions', { error });
             return [];
@@ -148,7 +149,8 @@ export class KubernetesEnhancedService implements IKubernetesService {
     async listNamespaces(): Promise<NamespaceInfo[]> {
         try {
             const response = await this.k8sApi.listNamespace();
-            return response.body.items.map(ns => ({
+            const items = (response as any).body?.items || (response as any).items || [];
+            return items.map((ns: any) => ({
                 name: ns.metadata?.name || '',
                 labels: ns.metadata?.labels || {},
                 status: ns.status?.phase || 'Unknown'
