@@ -47,7 +47,7 @@
   "author": "tsviz",
   "license": "MIT",
   "dependencies": {
-    "@kubernetes/client-node": "^0.21.0",
+    "@kubernetes/client-node": "^1.4.0",
     "@modelcontextprotocol/sdk": "^1.19.1",
     "@octokit/rest": "^20.0.2",
     "axios": "^1.6.8",
