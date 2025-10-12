@@ -1,6 +1,8 @@
-# ARC Config MCP v2.3.0 Release Notes
+# ARC Config MCP v2.3.1 Release Notes
 
-## 🎉 What's New in v2.3.0
+## 🎉 What's New in v2.3.1
+
+> **Note**: This is a patch release that includes the comprehensive release notes. The major features were introduced in v2.3.0.
 
 ### 🚀 Major Installation & Management Enhancements
 
@@ -219,6 +221,6 @@ This release includes significant improvements based on real-world ARC deploymen
 
 ---
 
-**Full Changelog**: [v2.2.1...v2.3.0](https://github.com/tsviz/arc-config-mcp/compare/v2.2.1...v2.3.0)
+**Full Changelog**: [v2.2.1...v2.3.1](https://github.com/tsviz/arc-config-mcp/compare/v2.2.1...v2.3.1)
 
-**Download**: [Release v2.3.0](https://github.com/tsviz/arc-config-mcp/releases/tag/v2.3.0)
+**Download**: [Release v2.3.1](https://github.com/tsviz/arc-config-mcp/releases/tag/v2.3.1)
