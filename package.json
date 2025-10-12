@@ -1,6 +1,6 @@
 {
   "name": "arc-config-mcp",
-  "version": "2.3.0",
+  "version": "2.3.1",
   "description": "Advanced TypeScript MCP server for GitHub Actions Runner Controller (ARC) management with AI-powered automation, policy engine, and natural language operations",
   "main": "build/index.js",
   "type": "module",
