@@ -367,12 +367,12 @@ ${runnerDisplay}                                                             │
             // Add runner deployment follow-up prompt
             this.state.runnerDeploymentPrompt = {
                 recommended: true,
-                defaultCount: 3,
+                defaultCount: 20,
                 autoScaling: {
-                    min: 1,
-                    max: 6
+                    min: 20,
+                    max: 40
                 },
-                message: "Would you like to deploy GitHub Actions runners now? (Recommended: 3 runners with auto-scaling)"
+                message: "Would you like to deploy GitHub Actions runners now? (Recommended: 20 runners with auto-scaling)"
             };
 
             this.log('🎉 ARC installation completed successfully');
@@ -458,19 +458,21 @@ ${runnerDisplay}                                                             │
                 this.updatePhaseStatus('prereq_check', 'running', 'Helm not found - install Helm 3.x from https://helm.sh/docs/intro/install/');
             }
 
-            // AI-enhanced GitHub authentication validation
+            // AI-enhanced GitHub authentication validation with comprehensive permission checking
             if (options.githubToken) {
                 try {
                     const user = await this.github.getCurrentUser();
                     this.log(`✅ GitHub API accessible (user: ${user.login})`);
                     this.addAiInsight('prereq_check', `GitHub integration validated for user: ${user.login}`);
 
-                    // Test GitHub permissions
-                    this.addAiInsight('prereq_check', 'Validating GitHub token permissions for ARC operations');
+                    // Comprehensive GitHub token permissions validation
+                    await this.validateGitHubTokenPermissions(options.githubToken, options.organizationName);
                 } catch (error) {
-                    warnings++;
-                    this.updatePhaseStatus('prereq_check', 'running', undefined,
-                        'GitHub token may have insufficient permissions for ARC operations');
+                    errors++;
+                    const errorMessage = error instanceof Error ? error.message : String(error);
+                    this.log(`❌ GitHub token validation failed: ${errorMessage}`, 'error');
+                    this.updatePhaseStatus('prereq_check', 'running', 
+                        `GitHub token validation failed: ${errorMessage}`);
                 }
             } else {
                 warnings++;
@@ -1032,6 +1034,387 @@ EOF"`);
     }
 
     /**
+     * Restart ARC controller to ensure it picks up any GitHub token updates
+     */
+    private async restartArcController(options: InstallationOptions): Promise<void> {
+        const namespace = options.namespace || this.DEFAULT_NAMESPACE;
+        
+        try {
+            this.log('🔄 Restarting ARC controller to ensure GitHub token updates are applied...');
+            
+            // Find the ARC controller deployment
+            const result = await this.commandExecutor.kubectl(`get deployments -n ${namespace} -o json`);
+            const deployments = JSON.parse(result.stdout);
+            const arcDeployment = deployments.items?.find((d: any) => 
+                d.metadata.name.includes('actions-runner-controller') || 
+                d.metadata.name.includes('arc-controller') ||
+                d.metadata.name === 'arc-actions-runner-controller'
+            );
+
+            if (arcDeployment) {
+                const deploymentName = arcDeployment.metadata.name;
+                this.log(`🔄 Restarting deployment: ${deploymentName}`);
+                
+                // Restart the deployment by adding a restart annotation
+                await this.commandExecutor.kubectl(
+                    `patch deployment ${deploymentName} -n ${namespace} -p '{"spec":{"template":{"metadata":{"annotations":{"kubectl.kubernetes.io/restartedAt":"'$(date -u +%Y-%m-%dT%H:%M:%SZ)'"}}}}}' 2>/dev/null || ` +
+                    `kubectl rollout restart deployment/${deploymentName} -n ${namespace}`
+                );
+                
+                // Wait for rollout to complete
+                this.log('⏳ Waiting for rollout to complete...');
+                await this.commandExecutor.kubectl(`rollout status deployment/${deploymentName} -n ${namespace} --timeout=300s`);
+                
+                this.log('✅ ARC controller restart completed successfully');
+                this.addAiInsight('validation_testing', 'Controller restarted to apply latest GitHub token configuration');
+            } else {
+                this.log('⚠️ ARC controller deployment not found, skipping restart');
+            }
+        } catch (error) {
+            this.log(`⚠️ Failed to restart ARC controller: ${error}`, 'warning');
+            // Don't throw error as this is not critical to the installation process
+        }
+    }
+
+    /**
+     * Comprehensive GitHub token permissions validation for ARC operations
+     */
+    private async validateGitHubTokenPermissions(githubToken: string, organizationName?: string): Promise<void> {
+        this.log('🔍 Validating GitHub token permissions for ARC operations...');
+        
+        const requiredPermissions = {
+            organization: {
+                'Administration': 'read',
+                'Self-hosted runners': 'read,write'
+            },
+            repository: {
+                'Administration': 'read,write'
+            }
+        };
+
+        const permissionErrors: string[] = [];
+        const permissionWarnings: string[] = [];
+
+        try {
+            // Test basic API access with explicit error handling
+            let user;
+            try {
+                user = await this.github.getCurrentUser(githubToken);
+                this.addAiInsight('prereq_check', `Token owner: ${user.login}`);
+            } catch (basicError) {
+                // Test directly with fetch to get detailed error
+                const testResponse = await fetch('https://api.github.com/user', {
+                    headers: {
+                        'Authorization': `token ${githubToken}`,
+                        'Accept': 'application/vnd.github.v3+json'
+                    }
+                });
+
+                if (testResponse.status === 401) {
+                    const errorBody = await testResponse.json();
+                    permissionErrors.push(`❌ GitHub token authentication failed: ${errorBody.message || 'Bad credentials'}`);
+                    permissionErrors.push(`❌ Token appears to be invalid, expired, or malformed`);
+                    
+                    // Check token format
+                    if (!githubToken.startsWith('ghp_') && !githubToken.startsWith('github_pat_')) {
+                        permissionErrors.push(`❌ Token format invalid - should start with 'ghp_' or 'github_pat_'`);
+                    }
+                    if (githubToken.length < 40) {
+                        permissionErrors.push(`❌ Token too short (${githubToken.length} chars) - valid tokens are 40+ characters`);
+                    }
+                    
+                    throw new Error('Token authentication failed');
+                } else if (!testResponse.ok) {
+                    permissionErrors.push(`❌ GitHub API error: ${testResponse.status} ${testResponse.statusText}`);
+                    throw new Error(`GitHub API error: ${testResponse.status}`);
+                } else {
+                    user = await testResponse.json();
+                    this.addAiInsight('prereq_check', `Token owner: ${user.login}`);
+                }
+            }
+
+            // Test organization access if organization is specified
+            if (organizationName) {
+                try {
+                    // Try to get organization details
+                    const orgResponse = await fetch(`https://api.github.com/orgs/${organizationName}`, {
+                        headers: {
+                            'Authorization': `token ${githubToken}`,
+                            'Accept': 'application/vnd.github.v3+json'
+                        }
+                    });
+
+                    if (orgResponse.status === 404) {
+                        permissionErrors.push(`❌ Organization '${organizationName}' not found or token lacks access`);
+                    } else if (orgResponse.status === 403) {
+                        permissionErrors.push(`❌ Token lacks permission to access organization '${organizationName}'`);
+                    } else if (orgResponse.ok) {
+                        this.log(`✅ Organization access verified: ${organizationName}`);
+                        this.addAiInsight('prereq_check', `Organization ${organizationName} accessible`);
+                    }
+
+                    // Test organization runners endpoint
+                    const runnersResponse = await fetch(`https://api.github.com/orgs/${organizationName}/actions/runners`, {
+                        headers: {
+                            'Authorization': `token ${githubToken}`,
+                            'Accept': 'application/vnd.github.v3+json'
+                        }
+                    });
+
+                    if (runnersResponse.status === 403) {
+                        permissionErrors.push(`❌ Token lacks 'Self-hosted runners: Read and write' permission for organization runners`);
+                    } else if (runnersResponse.status === 404) {
+                        permissionWarnings.push(`⚠️ Organization runners endpoint not accessible - may need 'Administration: Read' permission`);
+                    } else if (runnersResponse.ok) {
+                        this.log(`✅ Organization runners access verified`);
+                        this.addAiInsight('prereq_check', 'Organization self-hosted runners permissions validated');
+                    }
+
+                    // Test registration token creation (requires write access)
+                    const tokenResponse = await fetch(`https://api.github.com/orgs/${organizationName}/actions/runners/registration-token`, {
+                        method: 'POST',
+                        headers: {
+                            'Authorization': `token ${githubToken}`,
+                            'Accept': 'application/vnd.github.v3+json'
+                        }
+                    });
+
+                    if (tokenResponse.status === 403) {
+                        permissionErrors.push(`❌ Token lacks 'Self-hosted runners: Read and write' permission for runner registration`);
+                    } else if (tokenResponse.ok) {
+                        this.log(`✅ Runner registration token creation verified`);
+                        this.addAiInsight('prereq_check', 'Runner registration permissions validated');
+                    }
+
+                } catch (orgError) {
+                    permissionErrors.push(`❌ Failed to validate organization permissions: ${orgError}`);
+                }
+            }
+
+            // Report validation results
+            if (permissionErrors.length > 0) {
+                this.log('❌ GitHub Token Permission Issues Detected:', 'error');
+                permissionErrors.forEach(error => this.log(error, 'error'));
+                
+                this.log('\n🔧 Required GitHub Token Permissions for ARC:', 'error');
+                this.log('Organization permissions:', 'error');
+                this.log('  • Administration: Read', 'error');
+                this.log('  • Self-hosted runners: Read and write', 'error');
+                this.log('\nRepository permissions (if using repo-level runners):', 'error');
+                this.log('  • Administration: Read and write', 'error');
+                
+                this.log('\n💡 How to fix:', 'error');
+                this.log('1. Go to https://github.com/settings/tokens', 'error');
+                this.log('2. Click on your token or create a new one', 'error');
+                this.log('3. Under "Repository permissions" set:', 'error');
+                this.log('   - Administration: Read and write', 'error');
+                this.log('4. Under "Organization permissions" set:', 'error');
+                this.log('   - Administration: Read', 'error');
+                this.log('   - Self-hosted runners: Read and write', 'error');
+                this.log('5. Click "Update token" or "Generate token"', 'error');
+                this.log('6. Update your token in the MCP configuration\n', 'error');
+
+                throw new Error(`GitHub token lacks required permissions for ARC operations. See detailed errors above.`);
+            }
+
+            if (permissionWarnings.length > 0) {
+                this.log('⚠️ GitHub Token Permission Warnings:', 'warning');
+                permissionWarnings.forEach(warning => this.log(warning, 'warning'));
+            }
+
+            this.log('✅ GitHub token permissions validated successfully');
+            this.addAiInsight('prereq_check', 'All required GitHub token permissions verified for ARC operations');
+
+        } catch (error) {
+            if (error instanceof Error && error.message.includes('GitHub token lacks required permissions')) {
+                throw error; // Re-throw permission errors
+            }
+            
+            const errorMessage = error instanceof Error ? error.message : String(error);
+            this.log(`❌ GitHub token validation failed: ${errorMessage}`, 'error');
+            
+            if (errorMessage.includes('401')) {
+                this.log('\n🔧 Token Authentication Failed:', 'error');
+                this.log('• Token may be invalid or expired', 'error');
+                this.log('• Verify the token is correct in your MCP configuration', 'error');
+                this.log('• Generate a new token if needed: https://github.com/settings/tokens\n', 'error');
+            } else if (errorMessage.includes('403')) {
+                this.log('\n🔧 Token Permission Denied:', 'error');
+                this.log('• Token exists but lacks required permissions', 'error');
+                this.log('• Update token permissions as described above\n', 'error');
+            }
+            
+            throw new Error(`GitHub token validation failed: ${errorMessage}`);
+        }
+    }
+
+    /**
+     * Troubleshoot runner deployment issues, especially GitHub token problems
+     */
+    private async troubleshootRunnerDeployment(options: InstallationOptions): Promise<void> {
+        const namespace = options.namespace || this.DEFAULT_NAMESPACE;
+        
+        try {
+            this.log('🔍 Performing post-deployment runner troubleshooting...');
+            
+            // Wait a moment for runners to start
+            await new Promise(resolve => setTimeout(resolve, 10000));
+            
+            // Check if runners are actually running
+            const runnersResult = await this.commandExecutor.kubectl(`get runners -n ${namespace} -o json`);
+            const runners = JSON.parse(runnersResult.stdout);
+            
+            // Check if deployment exists but no runners are running
+            const deploymentResult = await this.commandExecutor.kubectl(`get runnerdeployments -n ${namespace} -o json`);
+            const deployments = JSON.parse(deploymentResult.stdout);
+            
+            if (deployments.items?.length > 0) {
+                const deployment = deployments.items[0];
+                const desiredReplicas = deployment.spec?.replicas || 0;
+                const availableReplicas = deployment.status?.availableReplicas || 0;
+                const runnerCount = runners.items?.length || 0;
+                
+                this.log(`📊 Runner Deployment Status:`);
+                this.log(`   Desired Replicas: ${desiredReplicas}`);
+                this.log(`   Available Replicas: ${availableReplicas}`);
+                this.log(`   Runner Objects: ${runnerCount}`);
+                
+                // If we have runners created but none are actually running, likely a GitHub token issue
+                if (runnerCount > 0 && availableReplicas === 0) {
+                    this.log('⚠️ Runners created but not running - likely GitHub authentication issue', 'warning');
+                    await this.diagnoseGitHubTokenIssues(options, namespace);
+                } else if (runnerCount === 0) {
+                    this.log('⚠️ No runner objects created - checking controller logs', 'warning');
+                    await this.checkControllerLogs(namespace);
+                } else if (availableReplicas > 0) {
+                    this.log('✅ Runners appear to be functioning correctly');
+                }
+            }
+        } catch (error) {
+            this.log(`⚠️ Runner troubleshooting failed: ${error}`, 'warning');
+        }
+    }
+
+    /**
+     * Diagnose GitHub token issues in runner deployment
+     */
+    private async diagnoseGitHubTokenIssues(options: InstallationOptions, namespace: string): Promise<void> {
+        this.log('🔍 Diagnosing GitHub token issues...');
+        
+        try {
+            // Test the token that's actually in the secret
+            const secretResult = await this.commandExecutor.kubectl(`get secret controller-manager -n ${namespace} -o jsonpath='{.data.github_token}'`);
+            const encodedToken = secretResult.stdout.trim();
+            const actualToken = Buffer.from(encodedToken, 'base64').toString('utf-8');
+            
+            this.log(`🔍 Testing GitHub token from Kubernetes secret...`);
+            
+            // Test the actual token
+            const testResponse = await fetch('https://api.github.com/user', {
+                headers: {
+                    'Authorization': `token ${actualToken}`,
+                    'Accept': 'application/vnd.github.v3+json'
+                }
+            });
+
+            if (testResponse.status === 401) {
+                const errorBody = await testResponse.json();
+                this.log('❌ GitHub Token Issues Detected:', 'error');
+                this.log(`❌ Authentication failed: ${errorBody.message}`, 'error');
+                
+                if (actualToken.length < 40) {
+                    this.log(`❌ Token too short: ${actualToken.length} characters (should be 40+)`, 'error');
+                }
+                
+                if (!actualToken.startsWith('ghp_') && !actualToken.startsWith('github_pat_')) {
+                    this.log(`❌ Invalid token format: should start with 'ghp_' or 'github_pat_'`, 'error');
+                }
+                
+                this.log('\n🔧 How to fix GitHub token issues:', 'error');
+                this.log('1. Go to https://github.com/settings/tokens', 'error');
+                this.log('2. Create a new Personal Access Token (classic)', 'error');
+                this.log('3. Set the following permissions:', 'error');
+                this.log('   Organization permissions:', 'error');
+                this.log('   • Administration: Read', 'error');
+                this.log('   • Self-hosted runners: Read and write', 'error');
+                this.log('   Repository permissions:', 'error');
+                this.log('   • Administration: Read and write', 'error');
+                this.log('4. Copy the new token (starts with ghp_)', 'error');
+                this.log('5. Update your MCP configuration with the new token', 'error');
+                this.log('6. Restart the ARC installation\n', 'error');
+                
+            } else if (testResponse.ok) {
+                const user = await testResponse.json();
+                this.log(`✅ GitHub token is valid for user: ${user.login}`);
+                
+                // Test organization access
+                if (options.organizationName) {
+                    const orgResponse = await fetch(`https://api.github.com/orgs/${options.organizationName}`, {
+                        headers: {
+                            'Authorization': `token ${actualToken}`,
+                            'Accept': 'application/vnd.github.v3+json'
+                        }
+                    });
+                    
+                    if (orgResponse.status === 404) {
+                        this.log(`❌ Cannot access organization '${options.organizationName}' - check permissions`, 'error');
+                    } else if (orgResponse.ok) {
+                        this.log(`✅ Organization access confirmed: ${options.organizationName}`);
+                        
+                        // Test runner registration permissions
+                        const runnerTokenResponse = await fetch(`https://api.github.com/orgs/${options.organizationName}/actions/runners/registration-token`, {
+                            method: 'POST',
+                            headers: {
+                                'Authorization': `token ${actualToken}`,
+                                'Accept': 'application/vnd.github.v3+json'
+                            }
+                        });
+                        
+                        if (runnerTokenResponse.status === 403) {
+                            this.log('❌ Token lacks runner registration permissions', 'error');
+                            this.log('   Required: Self-hosted runners: Read and write', 'error');
+                        } else if (runnerTokenResponse.ok) {
+                            this.log('✅ Runner registration permissions confirmed');
+                        }
+                    }
+                }
+            } else {
+                this.log(`❌ GitHub API error: ${testResponse.status} ${testResponse.statusText}`, 'error');
+            }
+            
+        } catch (error) {
+            this.log(`❌ Failed to diagnose GitHub token: ${error}`, 'error');
+        }
+    }
+
+    /**
+     * Check ARC controller logs for issues
+     */
+    private async checkControllerLogs(namespace: string): Promise<void> {
+        try {
+            this.log('🔍 Checking ARC controller logs for issues...');
+            const logsResult = await this.commandExecutor.kubectl(`logs -n ${namespace} -l app.kubernetes.io/name=actions-runner-controller --tail=20`);
+            
+            const logs = logsResult.stdout;
+            const errorLines = logs.split('\n').filter(line => 
+                line.toLowerCase().includes('error') || 
+                line.toLowerCase().includes('failed') ||
+                line.toLowerCase().includes('unauthorized') ||
+                line.toLowerCase().includes('forbidden')
+            );
+            
+            if (errorLines.length > 0) {
+                this.log('⚠️ Found potential issues in controller logs:', 'warning');
+                errorLines.forEach(line => this.log(`   ${line}`, 'warning'));
+            } else {
+                this.log('ℹ️ No obvious errors found in controller logs');
+            }
+        } catch (error) {
+            this.log(`⚠️ Could not retrieve controller logs: ${error}`, 'warning');
+        }
+    }
+
+    /**
      * Convert object to YAML string (simple implementation)
      */
     private convertObjectToYaml(obj: any, indent: number = 0): string {
@@ -1587,6 +1970,9 @@ EOF"`);
             this.addAiInsight('validation_testing', `Security compliance score: ${complianceScore}% (AI-validated)`);
             this.log(`✅ Security compliance score: ${complianceScore}%`);
 
+            // Restart ARC controller to ensure it picks up any GitHub token updates
+            await this.restartArcController(options);
+
             this.updatePhaseStatus('validation_testing', 'completed');
 
         } catch (error) {
@@ -1631,6 +2017,9 @@ EOF"`);
             this.log('✅ AI-generated runner guidance and configurations ready');
             this.updatePhaseStatus('runner_registration', 'completed');
 
+            // Post-deployment troubleshooting for runner issues
+            await this.troubleshootRunnerDeployment(options);
+
         } catch (error) {
             const errorMessage = error instanceof Error ? error.message : String(error);
             this.updatePhaseStatus('runner_registration', 'failed', errorMessage);
@@ -1656,8 +2045,8 @@ EOF"`);
             spec: {
                 githubConfigUrl: `https://github.com/${githubOrg}`,
                 githubConfigSecret: 'controller-manager',
-                minReplicas: 1,
-                maxReplicas: 10,
+                minReplicas: 4,  // Support 4 concurrent parallel jobs by default
+                maxReplicas: 12, // Allow scaling up to 12 runners for high demand
                 template: {
                     spec: {
                         containers: [{
@@ -1814,7 +2203,7 @@ echo "Performance: Optimized"`
                 message: 'AI-optimized runner scale set deployed successfully',
                 name: config.runnerScaleSetName || 'ai-optimized-runners',
                 repository: `${config.owner}/${config.repo}`,
-                minReplicas: config.minReplicas || 1,
+                minReplicas: config.minReplicas || 4,  // Default to 4 for concurrent parallel jobs
                 maxReplicas: config.maxReplicas || 10,
                 aiFeatures: {
                     intelligentScaling: true,

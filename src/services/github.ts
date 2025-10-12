@@ -70,15 +70,35 @@ export class GitHubService {
      * Get current authenticated user
      * @tier1 - Basic implementation
      */
-    async getCurrentUser(): Promise<any> {
+    async getCurrentUser(githubToken?: string): Promise<any> {
         this.logger.info('Getting current authenticated GitHub user');
 
-        // Placeholder implementation
-        return {
-            login: 'github-user',
-            id: 12345,
-            type: 'User',
-            name: 'GitHub User'
-        };
+        // Get token from environment if not provided
+        const token = githubToken || process.env.GITHUB_TOKEN;
+        if (!token) {
+            throw new Error('GitHub token not provided');
+        }
+
+        try {
+            const response = await fetch('https://api.github.com/user', {
+                headers: {
+                    'Authorization': `token ${token}`,
+                    'Accept': 'application/vnd.github.v3+json',
+                    'User-Agent': 'ARC-MCP-Server'
+                }
+            });
+
+            if (!response.ok) {
+                const errorBody = await response.text();
+                throw new Error(`GitHub API error: ${response.status} ${response.statusText} - ${errorBody}`);
+            }
+
+            const user = await response.json();
+            this.logger.info(`✅ Authenticated as GitHub user: ${user.login}`);
+            return user;
+        } catch (error) {
+            this.logger.error(`❌ Failed to get current user: ${error}`);
+            throw error;
+        }
     }
 }

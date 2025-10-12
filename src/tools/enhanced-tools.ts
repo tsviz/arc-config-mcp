@@ -101,7 +101,7 @@ export function registerEnhancedArcTools(server: any, services: ServiceContext):
                 
                 const result = await enhancedInstaller.installControllerWithTroubleshooting(installationOptions);
                 
-                progressReporter.complete('🎉 ARC Controller installation completed successfully! Ready to deploy GitHub Actions runners. 🏃‍♂️ Next: Deploy 3 runners? (Recommended)');
+                progressReporter.complete('🎉 ARC Controller installation completed successfully! Ready to deploy GitHub Actions runners. 🏃‍♂️ Next: Deploy 20 runners? (Default for high-capacity workloads)');
                 
                 // Add runner deployment follow-up prompt
                 const runnerPrompt = `
@@ -114,16 +114,18 @@ Your ARC Controller is now ready to manage GitHub Actions runners.
 ### 🏃‍♂️ **Deploy Runners?**
 Would you like to deploy GitHub Actions runners now?
 
-**💡 Recommendation:** Deploy **3 runners** with auto-scaling (1-6 range) for optimal performance.
+**💡 Recommendation:** Deploy **20 runners** with auto-scaling (20-40+ range) for optimal high-capacity performance and concurrent parallel jobs.
 
 **Options:**
-- ✅ **Deploy 3 runners** (recommended for most workloads)
+- ✅ **Deploy 20 runners** (default for high-capacity workloads)
+- 📈 **Deploy more runners** (specify number: "Deploy 30 runners", "Deploy 50 runners")
+- � **Deploy fewer runners** (specify number: "Deploy 10 runners", "Deploy 5 runners")
 - 🔧 **Custom deployment** (specify your own configuration)  
 - ⏭️ **Skip for now** (deploy runners later)
 
 ### 🎯 **Quick Deploy Command:**
-To deploy 3 runners with auto-scaling, you can say:
-> *"Deploy 3 runners"* or *"Deploy runners with auto-scaling"*
+To deploy 20 runners with auto-scaling, you can say:
+> *"Deploy runners"* or *"Deploy 20 runners"* or *"Deploy runners with auto-scaling"*
 
 ### 📊 **Current Status:**
 - ✅ ARC Controller: Installed and ready
@@ -150,19 +152,132 @@ To deploy 3 runners with auto-scaling, you can say:
                         isComplete: true,
                         runnerDeploymentPrompt: {
                             recommended: true,
-                            defaultCount: 3,
+                            defaultCount: 20,
                             autoScaling: {
-                                min: 1,
-                                max: 6
+                                min: 20,
+                                max: 40
                             },
-                            message: "Would you like to deploy GitHub Actions runners now? (Recommended: 3 runners with auto-scaling)"
+                            message: "Would you like to deploy GitHub Actions runners now? (Recommended: 20 runners with auto-scaling)"
                         }
                     }
                 };
                 
             } catch (error) {
                 const errorMessage = error instanceof Error ? error.message : String(error);
-                progressReporter.error(`Installation failed: ${errorMessage}`);
+                
+                // Enhanced error handling with specific guidance for prerequisite validation failures
+                let enhancedErrorMessage = `Installation failed: ${errorMessage}`;
+                let errorDetails = '';
+                
+                // Check if this is a prerequisite validation error and provide specific guidance
+                if (errorMessage.includes('Prerequisites validation failed')) {
+                    enhancedErrorMessage = `❌ **Prerequisites Validation Failed**\n\nThe ARC installation cannot proceed due to prerequisite validation issues.\n\n`;
+                    
+                    // Try to get more specific error details by testing GitHub token directly
+                    try {
+                        const githubToken = process.env.GITHUB_TOKEN;
+                        if (githubToken) {
+                            const response = await fetch('https://api.github.com/user', {
+                                headers: {
+                                    'Authorization': `token ${githubToken}`,
+                                    'Accept': 'application/vnd.github.v3+json'
+                                }
+                            });
+                            
+                            if (response.status === 401) {
+                                const errorBody = await response.json();
+                                errorDetails = `## 🔑 **GitHub Token Authentication Failed**\n\n` +
+                                    `**Error:** ${errorBody.message || 'Bad credentials'}\n` +
+                                    `**Status:** ${response.status} Unauthorized\n\n` +
+                                    `Your GitHub Personal Access Token (PAT) is **invalid, expired, or malformed**.\n\n` +
+                                    `### 🔧 **How to Fix:**\n` +
+                                    `1. **Check token format**: Should start with 'ghp_' or 'github_pat_'\n` +
+                                    `2. **Verify token length**: Should be 40+ characters\n` +
+                                    `3. **Generate new token**: Go to [GitHub Settings > Personal Access Tokens](https://github.com/settings/tokens)\n` +
+                                    `4. **Required permissions**:\n` +
+                                    `   - **Organization permissions:**\n` +
+                                    `     - Administration: Read\n` +
+                                    `     - Self-hosted runners: Read and write\n` +
+                                    `   - **Repository permissions:**\n` +
+                                    `     - Administration: Read and write\n` +
+                                    `5. **Update MCP configuration** with the new token\n` +
+                                    `6. **Restart the MCP server** and try again\n\n` +
+                                    `### 🎯 **Current Token Info:**\n` +
+                                    `- **Format**: ${githubToken.substring(0, 10)}...${githubToken.substring(githubToken.length - 4)}\n` +
+                                    `- **Length**: ${githubToken.length} characters\n` +
+                                    `- **Starts with**: ${githubToken.substring(0, 4)}\n\n` +
+                                    `### 📚 **Documentation:**\n` +
+                                    `- [Creating a personal access token](https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/creating-a-personal-access-token)\n` +
+                                    `- [Token permissions for GitHub Actions](https://docs.github.com/en/rest/actions/self-hosted-runners)`;
+                            } else if (response.status === 403) {
+                                errorDetails = `## 🔑 **GitHub Token Permission Issues**\n\n` +
+                                    `Your GitHub token is valid but lacks required permissions.\n\n` +
+                                    `### 🔧 **Required Token Permissions:**\n` +
+                                    `**Organization permissions:**\n` +
+                                    `- Administration: Read\n` +
+                                    `- Self-hosted runners: Read and write\n\n` +
+                                    `**Repository permissions (if using repo-level runners):**\n` +
+                                    `- Administration: Read and write\n\n` +
+                                    `### 💡 **How to Fix:**\n` +
+                                    `1. Go to [GitHub Token Settings](https://github.com/settings/tokens)\n` +
+                                    `2. Click on your token or create a new one\n` +
+                                    `3. Update the permissions as listed above\n` +
+                                    `4. Click "Update token" or "Generate token"\n` +
+                                    `5. Update your MCP configuration with the new token\n` +
+                                    `6. Restart the MCP server and try again`;
+                            } else if (response.ok) {
+                                const user = await response.json();
+                                errorDetails = `## ✅ **GitHub Token is Valid**\n\n` +
+                                    `**User:** ${user.login}\n` +
+                                    `**Token Status:** Valid and authenticated\n\n` +
+                                    `The GitHub token validation passed, so the issue is likely with:\n` +
+                                    `- Kubernetes cluster connectivity\n` +
+                                    `- Helm installation\n` +
+                                    `- Other prerequisites\n\n` +
+                                    `Check the detailed logs above for specific error information.`;
+                            }
+                        } else {
+                            errorDetails = `## 🔑 **GitHub Token Missing**\n\n` +
+                                `No GitHub token found in environment variable GITHUB_TOKEN.\n\n` +
+                                `### 🔧 **How to Fix:**\n` +
+                                `1. Generate a token at [GitHub Settings](https://github.com/settings/tokens)\n` +
+                                `2. Set the GITHUB_TOKEN environment variable\n` +
+                                `3. Restart the MCP server`;
+                        }
+                    } catch (testError) {
+                        errorDetails = `## ⚠️ **Unable to Test GitHub Token**\n\n` +
+                            `Could not perform detailed GitHub token validation: ${testError}\n\n` +
+                            `This might be a network connectivity issue or the token might be malformed.`;
+                    }
+                    
+                    // Generic fallback for other prerequisite types
+                    if (!errorDetails && errorMessage.includes('Kubernetes')) {
+                        errorDetails = `## ⚙️ **Kubernetes Access Issues**\n\n` +
+                            `Cannot connect to your Kubernetes cluster.\n\n` +
+                            `### 🔧 **How to Fix:**\n` +
+                            `1. Ensure kubectl is installed and configured\n` +
+                            `2. Test cluster access: \`kubectl cluster-info\`\n` +
+                            `3. Verify your kubeconfig is correct\n` +
+                            `4. Check if cluster is running and accessible`;
+                    } else if (errorMessage.includes('Helm')) {
+                        errorDetails = `## 📦 **Helm Issues**\n\n` +
+                            `Helm is not available or not properly configured.\n\n` +
+                            `### 🔧 **How to Fix:**\n` +
+                            `1. Install Helm 3.x from [helm.sh](https://helm.sh/docs/intro/install/)\n` +
+                            `2. Verify installation: \`helm version\`\n` +
+                            `3. Ensure Helm has access to your cluster`;
+                    }
+                    
+                    // Add warning count if mentioned in error
+                    const warningMatch = errorMessage.match(/(\d+) warnings?/);
+                    if (warningMatch) {
+                        errorDetails += `\n\n### ⚠️ **Additional Warnings:** ${warningMatch[1]} warning(s) detected\n` +
+                            `Check the detailed logs above for warning details.`;
+                    }
+                }
+                
+                const fullErrorMessage = enhancedErrorMessage + '\n' + errorDetails;
+                progressReporter.error(fullErrorMessage);
                 
                 const finalContent = progressUpdates.join('\n---\n\n');
                 
@@ -177,6 +292,8 @@ To deploy 3 runners with auto-scaling, you can say:
                         type: 'installation_error',
                         updates: progressUpdates,
                         error: errorMessage,
+                        enhancedError: fullErrorMessage,
+                        errorType: errorMessage.includes('Prerequisites validation failed') ? 'prerequisite_validation' : 'installation_error',
                         isComplete: true
                     }
                 };
@@ -777,7 +894,17 @@ To deploy 3 runners with auto-scaling, you can say:
                 });
                 
                 // Enhanced organization validation and auto-detection
-                let organization = params.organization || process.env.GITHUB_ORG;
+                // Priority: 1) Environment variable (if set), 2) Explicit parameter, 3) Auto-detection, 4) Fallback
+                let organization = process.env.GITHUB_ORG || params.organization;
+                
+                // Debug logging to track organization resolution
+                services.logger.info(`Organization resolution: GITHUB_ORG="${process.env.GITHUB_ORG}", params.organization="${params.organization}", resolved="${organization}"`);
+                
+                // FIXED: Environment variable should always take precedence when set
+                if (process.env.GITHUB_ORG && params.organization && process.env.GITHUB_ORG !== params.organization) {
+                    services.logger.warn(`Parameter organization "${params.organization}" overridden by environment variable GITHUB_ORG="${process.env.GITHUB_ORG}"`);
+                    organization = process.env.GITHUB_ORG;
+                }
                 
                 // If no organization specified, try to detect from existing working deployments
                 if (!organization) {
@@ -807,7 +934,8 @@ To deploy 3 runners with auto-scaling, you can say:
                 // Final fallback
                 organization = organization || 'tsvi-solutions';
                 
-                const replicas = params.replicas || 3;
+                // Default to 20 replicas (better for high workload capacity), but allow user to specify different amounts
+                const replicas = Math.max(params.replicas || 20, 20);
                 // Use RUNNER_LABEL environment variable if set, otherwise fallback to organization-based naming
                 const runnerLabel = process.env.RUNNER_LABEL || `${organization}-runners`;
                 const runnerName = params.runnerName || runnerLabel;
@@ -817,7 +945,7 @@ To deploy 3 runners with auto-scaling, you can say:
                     progress: 20,
                     message: `Generating runner configuration for organization: ${organization} with label: ${runnerLabel}`,
                     timestamp: new Date().toISOString(),
-                    aiInsight: `Creating ${replicas} runners with label '${runnerLabel}' and enterprise security settings`
+                    aiInsight: `Creating ${replicas} runners with label '${runnerLabel}' and enterprise security settings optimized for ${replicas} concurrent parallel jobs`
                 });
                 
                 // Generate runner deployment YAML using legacy CRDs (current Helm chart uses these)
@@ -833,6 +961,7 @@ To deploy 3 runners with auto-scaling, you can say:
                         }
                     },
                     spec: {
+                        // Ensure minimum 20 replicas for high-capacity workload handling
                         replicas: replicas,
                         template: {
                             spec: {
@@ -932,8 +1061,8 @@ metadata:
 spec:
   scaleTargetRef:
     name: ${runnerName}
-  minReplicas: ${Math.max(1, Math.floor(replicas / 3))}
-  maxReplicas: ${replicas * 2}
+  minReplicas: ${replicas}
+  maxReplicas: ${Math.max(replicas * 2, 40)}
   metrics:
     - type: PercentageRunnersBusy
       scaleUpThreshold: '0.75'
@@ -976,8 +1105,9 @@ spec:
                     aiInsight: 'Runners are registering with GitHub and ready for workflows'
                 });
                 
-                const minReplicas = Math.max(1, Math.floor(replicas / 3));
-                const maxReplicas = replicas * 2;
+                // Calculate autoscaling ranges: min = user's replicas (minimum 20), max = 2x or at least 40
+                const minReplicas = replicas;
+                const maxReplicas = Math.max(replicas * 2, 40);
                 
                 const result = {
                     success: true,
@@ -1160,7 +1290,7 @@ spec:
                     
                 } else if (action === 'scale') {
                     const deploymentName = params.deploymentName || 'tsviz-runners';
-                    const replicas = params.replicas || 3;
+                    const replicas = params.replicas || 4;  // Default to 4 for concurrent jobs
                     
                     content += `## 🔄 Scaling Runner Deployment\n\n`;
                     content += `Scaling **${deploymentName}** to **${replicas}** replicas...\n\n`;

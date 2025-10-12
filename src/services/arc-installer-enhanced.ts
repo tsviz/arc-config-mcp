@@ -44,9 +44,13 @@ export interface EnhancedCleanupState {
  */
 export class EnhancedArcInstaller extends ArcInstaller {
     private troubleshootingScenarios: TroubleshootingScenario[] = [];
+    private kubernetesService: KubernetesService;
+    private githubService: GitHubService;
 
     constructor(kubernetes: KubernetesService, github: GitHubService, logger: any) {
         super(kubernetes, github, logger);
+        this.kubernetesService = kubernetes;
+        this.githubService = github;
         this.initializeTroubleshootingScenarios();
     }
 
@@ -668,6 +672,111 @@ export class EnhancedArcInstaller extends ArcInstaller {
     }
 
     /**
+     * Enhanced installation with detailed error capturing for prerequisite validation
+     */
+    private async installControllerWithDetailedErrors(options: InstallationOptions = {}): Promise<InstallationState> {
+        try {
+            return await this.installController(options);
+        } catch (error) {
+            const errorMessage = error instanceof Error ? error.message : String(error);
+            
+            // If this is a prerequisite validation error, enhance it with detailed information
+            if (errorMessage.includes('Prerequisites validation failed')) {
+                // Capture detailed error information from logs
+                const detailedError = await this.captureDetailedPrerequisiteErrors(options, errorMessage);
+                throw new Error(detailedError);
+            }
+            
+            // Re-throw other errors as-is
+            throw error;
+        }
+    }
+
+    /**
+     * Capture detailed prerequisite error information for better user feedback
+     */
+    private async captureDetailedPrerequisiteErrors(options: InstallationOptions, originalError: string): Promise<string> {
+        let enhancedError = originalError;
+        const errorDetails: string[] = [];
+        
+        try {
+            // Test GitHub token specifically if that seems to be the issue
+            if (options.githubToken) {
+                try {
+                    await this.githubService.getCurrentUser(options.githubToken);
+                    errorDetails.push('✅ GitHub token is valid and can authenticate');
+                } catch (githubError) {
+                    const githubMessage = githubError instanceof Error ? githubError.message : String(githubError);
+                    if (githubMessage.includes('401')) {
+                        errorDetails.push('❌ GitHub token authentication failed: Invalid or expired token');
+                        errorDetails.push('💡 Token format should start with "ghp_" or "github_pat_"');
+                        errorDetails.push('💡 Generate a new token at: https://github.com/settings/tokens');
+                    } else if (githubMessage.includes('403')) {
+                        errorDetails.push('❌ GitHub token lacks required permissions');
+                        errorDetails.push('💡 Required permissions: Administration (read), Self-hosted runners (read/write)');
+                    } else {
+                        errorDetails.push(`❌ GitHub API error: ${githubMessage}`);
+                    }
+                }
+                
+                // Test organization access if specified
+                if (options.organizationName) {
+                    try {
+                        const response = await fetch(`https://api.github.com/orgs/${options.organizationName}`, {
+                            headers: {
+                                'Authorization': `token ${options.githubToken}`,
+                                'Accept': 'application/vnd.github.v3+json'
+                            }
+                        });
+                        
+                        if (response.status === 404) {
+                            errorDetails.push(`❌ Organization '${options.organizationName}' not found or token lacks access`);
+                        } else if (response.status === 403) {
+                            errorDetails.push(`❌ Token lacks permission to access organization '${options.organizationName}'`);
+                        } else if (response.ok) {
+                            errorDetails.push(`✅ Organization '${options.organizationName}' is accessible`);
+                        }
+                    } catch (orgError) {
+                        errorDetails.push(`❌ Failed to verify organization access: ${orgError}`);
+                    }
+                }
+            } else {
+                errorDetails.push('❌ GitHub token not provided');
+            }
+            
+            // Test Kubernetes connectivity
+            try {
+                await this.kubernetesService.getClusterInfo();
+                errorDetails.push('✅ Kubernetes cluster is accessible');
+            } catch (k8sError) {
+                const k8sMessage = k8sError instanceof Error ? k8sError.message : String(k8sError);
+                errorDetails.push(`❌ Kubernetes connectivity failed: ${k8sMessage}`);
+                errorDetails.push('💡 Ensure kubectl is configured and cluster is accessible');
+            }
+            
+            // Test Helm availability
+            try {
+                await this.commandExecutor.helm('version --short');
+                errorDetails.push('✅ Helm is available');
+            } catch (helmError) {
+                const helmMessage = helmError instanceof Error ? helmError.message : String(helmError);
+                errorDetails.push(`❌ Helm not available: ${helmMessage}`);
+                errorDetails.push('💡 Install Helm 3.x from https://helm.sh/docs/intro/install/');
+            }
+            
+        } catch (analysisError) {
+            errorDetails.push(`⚠️ Error during detailed analysis: ${analysisError}`);
+        }
+        
+        // Combine original error with detailed analysis
+        if (errorDetails.length > 0) {
+            enhancedError = `${originalError}\n\n🔍 Detailed Analysis:\n${errorDetails.join('\n')}`;
+        }
+        
+        return enhancedError;
+    }
+
+    /**
      * Enhanced installation with troubleshooting and pre-installation analysis
      */
     async installControllerWithTroubleshooting(options: InstallationOptions = {}): Promise<InstallationState> {
@@ -677,8 +786,8 @@ export class EnhancedArcInstaller extends ArcInstaller {
             // Pre-installation troubleshooting
             await this.performPreInstallationTroubleshooting();
 
-            // Attempt standard installation
-            const result = await this.installController(options);
+            // Attempt standard installation with enhanced error capturing
+            const result = await this.installControllerWithDetailedErrors(options);
 
             // Post-installation validation
             await this.performPostInstallationValidation(options);

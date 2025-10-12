@@ -12,7 +12,8 @@ metadata:
     environment: development
 spec:
   # Number of runner replicas
-  replicas: 3
+  # Number of runner replicas - default 4 to handle 4 concurrent parallel jobs
+  replicas: 4
   
   template:
     spec:
@@ -210,7 +211,8 @@ spec:
     name: example-runner-deployment
   
   # Scaling configuration
-  minReplicas: 1
+  # Minimum replicas for autoscaling - ensures 4 concurrent jobs can run
+  minReplicas: 4
   maxReplicas: 10
   
   # Scaling metrics
