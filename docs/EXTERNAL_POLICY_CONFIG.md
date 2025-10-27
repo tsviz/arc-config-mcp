@@ -556,7 +556,7 @@ spec:
         
     - name: "k8s-secrets"
       type: "kubernetes"
-      namespace: "arc-system"
+      namespace: "arc-systems"
       
     - name: "aws-secrets"
       type: "aws-secrets-manager"
@@ -565,7 +565,7 @@ spec:
   # Encrypted configuration values
   encryptedValues:
     github_token: "vault:secret/arc/github#token"
-    webhook_secret: "k8s:arc-system/webhook-secret#secret"
+    webhook_secret: "k8s:arc-systems/webhook-secret#secret"
     database_password: "aws:prod/arc/database#password"
     
   # Field-level encryption
@@ -608,7 +608,7 @@ spec:
       subjects:
         - kind: "ServiceAccount"
           name: "arc-operator"
-          namespace: "arc-system"
+          namespace: "arc-systems"
           
     - name: "config-reader"
       permissions:

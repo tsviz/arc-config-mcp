@@ -1,8 +1,17 @@
 # ARC MCP Server Tools Catalog
 
-> **🚀 Complete reference for all ARC management tools**
+> **🚀 Complete reference for all ARC management tools with ARC 0.13.0 support**
 > 
-> A comprehensive, discoverable catalog of all MCP tools for GitHub Actions Runner Controller operations. Use the `arc_list_tools` meta tool for real-time tool discovery.
+> A comprehensive, discoverable catalog of all MCP tools for GitHub Actions Runner Controller operations. Includes support for container mode optimization, dual-stack networking, Azure Key Vault integration, and OpenShift deployment.
+
+## 🆕 ARC 0.13.0 Enhancements
+
+This MCP server now fully supports ARC 0.13.0 features:
+- **🔥 Container Mode**: `kubernetes-novolume` for RWX-free deployments
+- **🌐 Dual-Stack Networking**: IPv4/IPv6 support with automatic fallback
+- **🔐 Azure Key Vault**: Secure secret management with CSI integration
+- **🏢 OpenShift Support**: Enterprise deployment with Security Context Constraints
+- **📊 Enhanced Metrics**: New `workflow_name` and `target` labels
 
 ## 🔍 Quick Discovery
 
@@ -32,22 +41,32 @@ Args: { "filter": "install" }
 | **📊 Monitoring & Insights**      | health_check, metrics, reports           | Observability and analytics         |
 | **🛠️ Infrastructure Management**  | networking, secrets, backup, upgrade     | Advanced cluster operations         |
 | **🎭 Natural Language Interface** | process_natural_language                 | Human-friendly command processing   |
+| **🔥 ARC 0.13.0 Features**        | container_mode, dual_stack, key_vault    | Latest ARC capabilities             |
 
 ---
 
 ## 📦 Detailed Tool Reference
 
-### 🎯 Core ARC Operations
+### 🔥 ARC 0.13.0 Enhanced Tools
 
-#### `arc_install_controller`
-**Purpose**: Deploy ARC controller to Kubernetes cluster with intelligent configuration  
-**Use Cases**: First-time setup, cluster migrations, version upgrades
+#### `arc_install_controller` (Enhanced)
+**Purpose**: Deploy ARC controller with 0.13.0 optimizations  
+**Use Cases**: Container mode deployments, dual-stack networking, Azure Key Vault integration
 
 ```typescript
 interface InstallParams {
-  namespace?: string;           // Target namespace (default: arc-system)
-  version?: string;            // ARC version (default: latest stable)
-  security_profile?: string;   // Security level: basic|standard|strict
+  namespace?: string;              // Target namespace (default: arc-system)
+  version?: string;               // ARC version (default: 0.13.0)
+  security_profile?: string;      // Security level: basic|standard|strict
+  container_mode?: string;        // NEW: kubernetes-novolume|kubernetes-dind
+  enable_dual_stack?: boolean;    // NEW: Enable IPv4/IPv6 dual-stack
+  azure_key_vault?: {             // NEW: Azure Key Vault integration
+    enabled: boolean;
+    vault_name: string;
+    tenant_id: string;
+  };
+  openshift_mode?: boolean;       // NEW: Enable OpenShift SCCs
+  enhanced_metrics?: boolean;     // NEW: Enable workflow_name labels
   auto_scaling?: boolean;      // Enable auto-scaling (default: true)
   monitoring?: boolean;        // Install monitoring stack (default: true)
   github_org?: string;        // GitHub organization

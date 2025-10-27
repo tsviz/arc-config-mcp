@@ -49,11 +49,18 @@ Pass the cleanup parameter when calling the tool:
 ## Features
 
 ### 🧹 Comprehensive Cleanup
-- **Runner Resources**: AutoscalingRunnerSets, RunnerDeployments, HorizontalRunnerAutoscalers
+**Official ARC v0.13.0 Resources:**
+- **Runner Resources**: AutoscalingRunnerSets, EphemeralRunnerSets, EphemeralRunners, AutoscalingListeners
+- **Custom Resource Definitions**: `actions.github.com` CRDs
+
+**Legacy ARC Resources (Summerwind):**
+- **Runner Resources**: RunnerDeployments, HorizontalRunnerAutoscalers, Runners  
+- **Custom Resource Definitions**: `actions.summerwind.dev` CRDs
+
+**Common Components:**
 - **ARC Controller**: Helm releases, deployments, services
 - **Secrets & Configs**: GitHub tokens, configuration data
 - **Namespace**: Optional namespace removal with safety checks
-- **Custom Resources**: Intelligent handling of CRDs
 
 ### 🤖 AI-Guided Safety Checks
 - **Pre-cleanup Validation**: Analyzes cluster state before proceeding
@@ -152,6 +159,12 @@ Pass the cleanup parameter when calling the tool:
 - Preserves namespaces with non-ARC resources
 - Maintains CRDs for future installations
 - Selective component preservation
+
+### Multi-Version ARC Support
+- **Intelligent Detection**: Automatically identifies both official ARC v0.13.0 and legacy Summerwind resources
+- **Comprehensive CRD Cleanup**: Removes both `actions.github.com` and `actions.summerwind.dev` CRDs
+- **Parallel Processing**: Efficiently cleans up mixed installations with both versions
+- **Version-Aware Logic**: Applies appropriate cleanup strategies for each ARC version
 
 ### Dry Run Mode
 - Preview all cleanup operations

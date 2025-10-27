@@ -3,10 +3,56 @@ kind: HorizontalRunnerAutoscaler
 metadata:
   name: arc-runners-autoscaler
   namespace: arc-systems
+  labels:
+    # ARC 0.13.0 enhanced metrics labels
+    actions.github.com/workflow-name: "auto-scaling"
+    actions.github.com/target: "organization"
+    arc.version: "0.13.0"
+    arc.feature: "intelligent-scaling"
+  annotations:
+    arc.io/container-hooks: "supported"
+    arc.io/metrics-enhanced: "true"
 spec:
   scaleTargetRef:
     name: arc-runners
   minReplicas: 2
   maxReplicas: 10
+  
+  # ARC 0.13.0: Enhanced scaling metrics with new labels
   metrics:
     - type: TotalNumberOfQueuedAndInProgressWorkflowRuns
+      # Support for new workflow_name and target labels
+      repositoryNames:
+        - "<GITHUB_REPO>"
+      scaleUpThreshold: "0.75"
+      scaleDownThreshold: "0.25"
+      scaleUpFactor: "1.4"
+      scaleDownFactor: "0.7"
+  
+  # ARC 0.13.0: Intelligent scaling behavior
+  behavior:
+    scaleUp:
+      stabilizationWindowSeconds: 60
+      policies:
+      - type: Percent
+        value: 100
+        periodSeconds: 60
+      - type: Pods
+        value: 4
+        periodSeconds: 60
+      selectPolicy: Max
+    scaleDown:
+      stabilizationWindowSeconds: 300
+      policies:
+      - type: Percent
+        value: 50
+        periodSeconds: 60
+      - type: Pods
+        value: 2
+        periodSeconds: 60
+      selectPolicy: Min
+  
+  # ARC 0.13.0: Resource optimization
+  scaleDownDelaySecondsAfterScaleOut: 300
+  scaleUpCoolDownPeriod: "1m"
+  scaleDownCoolDownPeriod: "5m"

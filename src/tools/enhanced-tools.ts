@@ -99,7 +99,7 @@ export function registerEnhancedArcTools(server: any, services: ServiceContext):
                     autoCleanupOnFailure: process.env.CLEANUP_ARC === 'true'
                 };
                 
-                const result = await enhancedInstaller.installControllerWithTroubleshooting(installationOptions);
+                const result = await enhancedInstaller.installController(installationOptions);
                 
                 progressReporter.complete('🎉 ARC Controller installation completed successfully! Ready to deploy GitHub Actions runners. 🏃‍♂️ Next: Deploy 20 runners? (Default for high-capacity workloads)');
                 
@@ -335,7 +335,7 @@ To deploy 20 runners with auto-scaling, you can say:
                     result.runners.forEach((runner: any) => {
                         statusContent += `### ${runner.name}\n`;
                         statusContent += `- **Status:** ${getStatusEmoji(runner.status)} ${runner.status}\n`;
-                        statusContent += `- **Replicas:** ${runner.replicas?.ready || 0}/${runner.replicas?.desired || 0}\n`;
+                        statusContent += `- **Runners:** ${runner.status?.currentRunners || 0}/${runner.spec?.maxRunners || 0} (min: ${runner.spec?.minRunners || 0})\n`;
                         statusContent += `- **AI Optimized:** ${runner.aiOptimized ? '🧠 Yes' : '⚪ No'}\n\n`;
                     });
                 } else {
@@ -661,7 +661,15 @@ To deploy 20 runners with auto-scaling, you can say:
         'arc_cleanup_installation', 
         {
             title: 'Cleanup/Uninstall ARC with Real-time Progress',
-            description: 'Comprehensive cleanup and uninstallation of ARC with AI-guided safety checks and live progress updates'
+            description: 'Comprehensive cleanup and uninstallation of ARC with AI-guided safety checks and live progress updates',
+            inputSchema: {
+                namespace: z.string().optional().describe("Kubernetes namespace (defaults to arc-systems)"),
+                organization: z.string().optional().describe("GitHub organization name for runner cleanup (will auto-detect if not provided)"),
+                aggressiveMode: z.boolean().optional().describe("Enable aggressive cleanup mode - assumes runners are not in use (defaults to true for MCP)"),
+                preserveData: z.boolean().optional().describe("Preserve data and configurations (defaults to false)"),
+                dryRun: z.boolean().optional().describe("Preview cleanup without making changes (defaults to false)"),
+                forceNamespaceRemoval: z.boolean().optional().describe("Force removal of namespace even if it contains other resources (defaults to false)")
+            }
         },
         async (params: any) => {
             let progressUpdates: string[] = [];
@@ -767,18 +775,20 @@ To deploy 20 runners with auto-scaling, you can say:
                 
                 const cleanupOptions = {
                     namespace: params.namespace || 'arc-systems',
+                    organization: params.organization, // Pass organization for GitHub runner cleanup
                     preserveData: params.preserveData || false,
                     dryRun: params.dryRun || false,
-                    force: params.force || false,
-                    forceNamespaceRemoval: params.forceNamespaceRemoval || false
+                    force: true, // Always force when using MCP
+                    forceNamespaceRemoval: params.forceNamespaceRemoval || false,
+                    aggressiveMode: params.aggressiveMode !== false // Default to true for MCP unless explicitly disabled
                 };
                 
                 progressReporter.updateProgress({
                     phase: 'Configuration',
                     progress: 10,
-                    message: `Cleanup configuration: ${JSON.stringify(cleanupOptions)}`,
+                    message: `Ultra-robust cleanup configuration: ${JSON.stringify(cleanupOptions)}`,
                     timestamp: new Date().toISOString(),
-                    aiInsight: 'AI analyzing cluster for safe cleanup strategy'
+                    aiInsight: 'MCP-triggered cleanup operates in aggressive mode by default - assumes runners can be safely terminated'
                 });
                 
                 const result = await enhancedInstaller.cleanupArcWithTroubleshooting(cleanupOptions);
@@ -917,13 +927,15 @@ To deploy 20 runners with auto-scaling, you can say:
                     });
                     
                     try {
-                        const existingDeployments = await services.kubernetes.exec('kubectl', [
-                            'get', 'runnerdeployments', '-n', 'arc-systems', '-o', 'jsonpath={.items[*].spec.template.spec.organization}'
-                        ]);
+                        // Fix the kubectl call to use the proper command executor
+                        const existingDeployments = await services.installer.commandExecutor.kubectl(
+                            'get autoscalingrunnersets -n arc-systems -o jsonpath={.items[*].spec.githubConfigUrl}'
+                        );
                         
                         if (existingDeployments.stdout.trim()) {
-                            const orgs = existingDeployments.stdout.trim().split(' ').filter(Boolean);
-                            organization = orgs[0]; // Use first found organization
+                            const urls = existingDeployments.stdout.trim().split(' ').filter(Boolean);
+                            const firstUrl = urls[0]; // e.g., "https://github.com/tsvi-solutions"
+                            organization = firstUrl.split('/').pop(); // Extract organization name
                             services.logger.info(`Auto-detected organization: ${organization}`);
                         }
                     } catch (e) {
@@ -936,9 +948,10 @@ To deploy 20 runners with auto-scaling, you can say:
                 
                 // Default to 20 replicas (better for high workload capacity), but allow user to specify different amounts
                 const replicas = Math.max(params.replicas || 20, 20);
-                // Use RUNNER_LABEL environment variable if set, otherwise fallback to organization-based naming
+                // Use RUNNER_LABEL environment variable if set, otherwise fallback to params or organization-based naming
                 const runnerLabel = process.env.RUNNER_LABEL || `${organization}-runners`;
-                const runnerName = params.runnerName || runnerLabel;
+                // Prioritize explicit environment configuration over parameters
+                const runnerName = process.env.RUNNER_LABEL || params.runnerName || runnerLabel;
                 
                 progressReporter.updateProgress({
                     phase: 'Configuration Generation',
@@ -948,10 +961,10 @@ To deploy 20 runners with auto-scaling, you can say:
                     aiInsight: `Creating ${replicas} runners with label '${runnerLabel}' and enterprise security settings optimized for ${replicas} concurrent parallel jobs`
                 });
                 
-                // Generate runner deployment YAML using legacy CRDs (current Helm chart uses these)
+                // Generate runner deployment YAML using modern API (ARC v0.13.0+)
                 const runnerDeployment = {
-                    apiVersion: 'actions.summerwind.dev/v1alpha1',
-                    kind: 'RunnerDeployment',
+                    apiVersion: 'actions.github.com/v1alpha1',
+                    kind: 'AutoscalingRunnerSet',
                     metadata: {
                         name: runnerName,
                         namespace: 'arc-systems',
@@ -961,25 +974,83 @@ To deploy 20 runners with auto-scaling, you can say:
                         }
                     },
                     spec: {
-                        // Ensure minimum 20 replicas for high-capacity workload handling
-                        replicas: replicas,
+                        // Use minRunners/maxRunners for modern autoscaling
+                        minRunners: Math.max(1, Math.floor(replicas / 4)),
+                        maxRunners: replicas,
+                        githubConfigUrl: `https://github.com/${organization}`,
+                        githubConfigSecret: 'controller-manager',
+                        runnerGroup: 'default',
+                        runnerScaleSetName: runnerName,
                         template: {
+                            metadata: {
+                                labels: {
+                                    'app': 'github-actions-runner',
+                                    'runner-set': runnerName
+                                }
+                            },
                             spec: {
-                                organization: organization,
-                                env: [
-                                    { name: 'RUNNER_FEATURE_FLAG_EPHEMERAL', value: 'true' }
-                                ],
-                                resources: {
-                                    limits: { cpu: '2.0', memory: '1Gi' },
-                                    requests: { cpu: '100m', memory: '64Mi' }
-                                },
-                                envFrom: [
-                                    { secretRef: { name: 'controller-manager' } }
-                                ]
+                                containers: [{
+                                    name: 'runner',
+                                    image: 'ghcr.io/actions/actions-runner:latest',
+                                    env: [
+                                        { name: 'RUNNER_FEATURE_FLAG_EPHEMERAL', value: 'true' }
+                                    ],
+                                    resources: {
+                                        limits: { cpu: '2.0', memory: '1Gi' },
+                                        requests: { cpu: '100m', memory: '64Mi' }
+                                    }
+                                }]
                             }
                         }
                     }
                 };
+                
+                progressReporter.updateProgress({
+                    phase: 'CRD Validation',
+                    progress: 35,
+                    message: 'Checking for required CRDs (AutoscalingRunnerSet)...',
+                    timestamp: new Date().toISOString(),
+                    aiInsight: 'Validating Kubernetes CRD prerequisites for runner deployment'
+                });
+                
+                // Check if AutoscalingRunnerSet CRDs are installed
+                try {
+                    await services.installer.commandExecutor.kubectl('get crd autoscalingrunnersets.actions.github.com');
+                    services.logger.info('✅ AutoscalingRunnerSet CRDs are already installed');
+                } catch (error) {
+                    services.logger.warn('❌ AutoscalingRunnerSet CRDs not found, installing...');
+                    
+                    progressReporter.updateProgress({
+                        phase: 'CRD Installation',
+                        progress: 38,
+                        message: 'Installing required CRDs for ARC v0.13.0+...',
+                        timestamp: new Date().toISOString(),
+                        aiInsight: 'Installing AutoscalingRunnerSet and EphemeralRunner CRDs as prerequisite'
+                    });
+                    
+                    // Install CRDs using the official ARC Helm chart
+                    const crdHelmArgs = [
+                        'upgrade', '--install', 'arc-crds',
+                        '--namespace', 'arc-systems',
+                        '--create-namespace',
+                        '--set', 'crdsOnly=true',
+                        'oci://ghcr.io/actions/actions-runner-controller-charts/gha-runner-scale-set-controller'
+                    ].join(' ');
+                    
+                    try {
+                        await services.installer.commandExecutor.helm(crdHelmArgs);
+                        services.logger.info('✅ Successfully installed ARC CRDs');
+                        
+                        // Wait for CRDs to be available
+                        await new Promise(resolve => setTimeout(resolve, 5000));
+                        
+                        // Verify CRDs are now installed
+                        await services.installer.commandExecutor.kubectl('get crd autoscalingrunnersets.actions.github.com');
+                        services.logger.info('✅ CRD installation verified');
+                    } catch (crdError) {
+                        throw new Error(`Failed to install required CRDs: ${crdError}`);
+                    }
+                }
                 
                 progressReporter.updateProgress({
                     phase: 'Deployment',
@@ -989,101 +1060,35 @@ To deploy 20 runners with auto-scaling, you can say:
                     aiInsight: 'Deploying with Pod Security Standards and resource limits'
                 });
                 
-                // Apply the runner deployment using installer's command executor (the correct way)
-                const runnerYaml = `---
-apiVersion: actions.summerwind.dev/v1alpha1
-kind: RunnerDeployment
-metadata:
-  name: ${runnerName}
-  namespace: arc-systems
-  labels:
-    mcp.arc.io/managed: "true"
-    mcp.arc.io/enhanced: "true"
-spec:
-  replicas: ${replicas}
-  template:
-    spec:
-      organization: ${organization}
-      labels:
-        - ${runnerLabel}
-      env:
-        - name: RUNNER_FEATURE_FLAG_EPHEMERAL
-          value: "true"
-      resources:
-        limits:
-          cpu: "2.0"
-          memory: "1Gi"
-        requests:
-          cpu: "100m"
-          memory: "64Mi"
-      envFrom:
-        - secretRef:
-            name: controller-manager
-`;
+                // Use the official ARC Helm chart for proper deployment
+                const minRunners = Math.max(1, Math.floor(replicas / 4));
+                const maxRunners = replicas;
                 
-                // Write YAML to temporary file and apply via kubectl (same method as ArcInstaller)
-                const fs = await import('fs');
-                const os = await import('os');
-                const path = await import('path');
-                const tmpFile = path.join(os.tmpdir(), `runner-deployment-${Date.now()}.yaml`);
-                
-                await fs.promises.writeFile(tmpFile, runnerYaml);
-                
-                try {
-                    await services.installer.commandExecutor.kubectl(`apply -f ${tmpFile}`);
-                } finally {
-                    // Clean up temp file
-                    try {
-                        await fs.promises.unlink(tmpFile);
-                    } catch {
-                        // Ignore cleanup errors
-                    }
+                // Get GitHub token from environment or services
+                const githubToken = process.env.GITHUB_TOKEN || services.installer?.github?.token || '';
+                if (!githubToken) {
+                    throw new Error('GitHub token not found. Please ensure GITHUB_TOKEN is set or GitHub service is configured.');
                 }
                 
-                progressReporter.updateProgress({
-                    phase: 'Autoscaler Setup',
-                    progress: 60,
-                    message: 'Configuring intelligent autoscaling...',
-                    timestamp: new Date().toISOString(),
-                    aiInsight: 'Setting up organization-wide autoscaling based on runner utilization'
-                });
-                
-                // Generate autoscaler configuration using legacy CRDs (current Helm chart uses these)
-                // Use organization-wide scaling instead of repository-specific to avoid 404 errors
-                const autoscalerYaml = `---
-apiVersion: actions.summerwind.dev/v1alpha1
-kind: HorizontalRunnerAutoscaler
-metadata:
-  name: ${runnerName}-autoscaler
-  namespace: arc-systems
-  labels:
-    mcp.arc.io/managed: "true"
-spec:
-  scaleTargetRef:
-    name: ${runnerName}
-  minReplicas: ${replicas}
-  maxReplicas: ${Math.max(replicas * 2, 40)}
-  metrics:
-    - type: PercentageRunnersBusy
-      scaleUpThreshold: '0.75'
-      scaleDownThreshold: '0.25'
-      scaleUpFactor: '2'
-      scaleDownFactor: '0.5'
-`;
-                
-                const tmpAutoscalerFile = path.join(os.tmpdir(), `autoscaler-${Date.now()}.yaml`);
-                
-                await fs.promises.writeFile(tmpAutoscalerFile, autoscalerYaml);
+                const helmArgs = [
+                    'install', runnerName,
+                    '--namespace', 'arc-systems',
+                    '--set', `githubConfigUrl=https://github.com/${organization}`,
+                    '--set', `githubConfigSecret.github_token=${githubToken}`,
+                    '--set', `maxRunners=${maxRunners}`,
+                    '--set', `minRunners=${minRunners}`,
+                    '--set', `runnerScaleSetName=${runnerName}`,
+                    '--set', `runnerGroup=default`,
+                    'oci://ghcr.io/actions/actions-runner-controller-charts/gha-runner-scale-set'
+                ].join(' ');
                 
                 try {
-                    await services.installer.commandExecutor.kubectl(`apply -f ${tmpAutoscalerFile}`);
-                } finally {
-                    // Clean up temp file
-                    try {
-                        await fs.promises.unlink(tmpAutoscalerFile);
-                    } catch {
-                        // Ignore cleanup errors
-                    }
+                    // Use the installer's command executor for helm commands
+                    await services.installer.commandExecutor.helm(helmArgs);
+                } catch (error) {
+                    // If installation fails due to existing release, try upgrade instead
+                    const upgradeArgs = helmArgs.replace('install', 'upgrade --install');
+                    await services.installer.commandExecutor.helm(upgradeArgs);
                 }
                 
                 progressReporter.updateProgress({
@@ -1091,7 +1096,7 @@ spec:
                     progress: 80,
                     message: 'Validating runner deployment...',
                     timestamp: new Date().toISOString(),
-                    aiInsight: 'Checking runner registration with GitHub'
+                    aiInsight: 'AutoScalingRunnerSet includes built-in autoscaling - no separate autoscaler needed'
                 });
                 
                 // Wait a moment for deployment to start
@@ -1216,27 +1221,27 @@ spec:
                     let pods = [];
                     
                     try {
-                        const deploymentResult = await services.installer.commandExecutor.kubectl(`get runnerdeployments -n ${namespace} -o json`);
-                        const deploymentData = JSON.parse(deploymentResult.stdout);
-                        runnerDeployments = deploymentData.items || [];
+                        const autoscalingResult = await services.installer.commandExecutor.kubectl(`get autoscalingrunnersets -n ${namespace} -o json`);
+                        const autoscalingData = JSON.parse(autoscalingResult.stdout);
+                        runnerDeployments = autoscalingData.items || [];
                     } catch (error) {
-                        services.logger.warn('Could not get runner deployments', { error });
+                        services.logger.warn('Could not get autoscaling runner sets', { error });
                     }
                     
                     try {
-                        const runnerResult = await services.installer.commandExecutor.kubectl(`get runners -n ${namespace} -o json`);
+                        const runnerResult = await services.installer.commandExecutor.kubectl(`get ephemeralrunners -n ${namespace} -o json`);
                         const runnerData = JSON.parse(runnerResult.stdout);
                         runners = runnerData.items || [];
                     } catch (error) {
-                        services.logger.warn('Could not get runners', { error });
+                        services.logger.warn('Could not get ephemeral runners', { error });
                     }
                     
                     try {
-                        const autoscalerResult = await services.installer.commandExecutor.kubectl(`get horizontalrunnerautoscalers -n ${namespace} -o json`);
-                        const autoscalerData = JSON.parse(autoscalerResult.stdout);
-                        autoscalers = autoscalerData.items || [];
+                        const listenerResult = await services.installer.commandExecutor.kubectl(`get pods -n ${namespace} -l app.kubernetes.io/component=autoscaling-listener -o json`);
+                        const listenerData = JSON.parse(listenerResult.stdout);
+                        autoscalers = listenerData.items || [];
                     } catch (error) {
-                        services.logger.warn('Could not get autoscalers', { error });
+                        services.logger.warn('Could not get listener pods', { error });
                     }
                     
                     // Get pod status for enhanced reporting
@@ -1289,20 +1294,20 @@ spec:
                     }
                     
                 } else if (action === 'scale') {
-                    const deploymentName = params.deploymentName || 'tsviz-runners';
+                    const deploymentName = params.runnerName || params.deploymentName || 'tsvi-runners';
                     const replicas = params.replicas || 4;  // Default to 4 for concurrent jobs
                     
                     content += `## 🔄 Scaling Runner Deployment\n\n`;
                     content += `Scaling **${deploymentName}** to **${replicas}** replicas...\n\n`;
                     
                     try {
-                        // Scale the runner deployment using kubectl patch
-                        await services.installer.commandExecutor.kubectl(`patch runnerdeployment ${deploymentName} -n ${namespace} -p '{"spec":{"replicas":${replicas}}}' --type=merge`);
-                        content += `✅ **Success!** Runner deployment scaled to ${replicas} replicas.\n\n`;
+                        // Scale the AutoScalingRunnerSet using kubectl patch
+                        await services.installer.commandExecutor.kubectl(`patch autoscalingrunnerset ${deploymentName} -n ${namespace} -p '{"spec":{"maxRunners":${replicas}}}' --type=merge`);
+                        content += `✅ **Success!** AutoScalingRunnerSet scaled to maximum ${replicas} runners.\n\n`;
                         content += `**Estimated Timeline:** Scaling will complete in approximately ${Math.ceil(replicas * 0.5)} minutes.\n\n`;
                         content += `**Cost Impact:** Approximately $${(replicas * 0.10 * 24 * 30).toFixed(2)}/month for 24/7 operation.\n\n`;
                     } catch (error) {
-                        content += `❌ **Failed to scale runner deployment:** ${error}\n\n`;
+                        content += `❌ **Failed to scale AutoScalingRunnerSet:** ${error}\n\n`;
                     }
                 }
                 
@@ -1919,7 +1924,9 @@ function generateCleanupStrategy(analysisData: any): any {
             name: 'Force Deletion',
             description: 'Force remove stuck resources and namespaces',
             commands: [
-                'kubectl delete runners -n arc-systems --all --force --grace-period=0',
+                'kubectl delete ephemeralrunners -n arc-systems --all --force --grace-period=0',
+                'kubectl delete autoscalingrunnersets -n arc-systems --all --force --grace-period=0',
+                'helm uninstall -n arc-systems --ignore-not-found $(helm list -n arc-systems -q)',
                 'kubectl get namespace arc-systems -o json | jq ".spec.finalizers = []" | kubectl replace --raw /api/v1/namespaces/arc-systems/finalize -f -'
             ],
             expectedDuration: '1-3 minutes',

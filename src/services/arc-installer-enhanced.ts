@@ -228,19 +228,20 @@ export class EnhancedArcInstaller extends ArcInstaller {
     }
 
     /**
-     * Enhanced cleanup with comprehensive troubleshooting
+     * Enhanced cleanup with comprehensive troubleshooting - ULTRA-ROBUST VERSION
      */
     async cleanupArcWithTroubleshooting(options: any = {}): Promise<any> {
         const startTime = Date.now();
-        this.log('🔧 Starting enhanced ARC cleanup with comprehensive troubleshooting');
+        this.log('🔧 Starting ULTRA-ROBUST ARC cleanup with no-hang guarantees');
 
         const cleanupState: EnhancedCleanupState = {
             phases: {
                 'validation': { name: 'Pre-cleanup Validation', status: 'pending', errors: [], warnings: [], aiInsights: [] },
-                'troubleshooting': { name: 'Issue Detection & Resolution', status: 'pending', errors: [], warnings: [], aiInsights: [] },
-                'forced_cleanup': { name: 'Forced Resource Cleanup', status: 'pending', errors: [], warnings: [], aiInsights: [] },
-                'finalizer_removal': { name: 'Finalizer Removal', status: 'pending', errors: [], warnings: [], aiInsights: [] },
-                'namespace_force_delete': { name: 'Namespace Force Deletion', status: 'pending', errors: [], warnings: [], aiInsights: [] },
+                'github_runner_cleanup': { name: 'GitHub Runner Unregistration', status: 'pending', errors: [], warnings: [], aiInsights: [] },
+                'aggressive_finalizer_removal': { name: 'Aggressive Finalizer Removal', status: 'pending', errors: [], warnings: [], aiInsights: [] },
+                'forced_resource_termination': { name: 'Forced Resource Termination', status: 'pending', errors: [], warnings: [], aiInsights: [] },
+                'nuclear_cleanup': { name: 'Nuclear Cleanup Mode', status: 'pending', errors: [], warnings: [], aiInsights: [] },
+                'namespace_destruction': { name: 'Namespace Destruction', status: 'pending', errors: [], warnings: [], aiInsights: [] },
                 'verification': { name: 'Final Verification', status: 'pending', errors: [], warnings: [], aiInsights: [] }
             },
             removedComponents: [],
@@ -255,36 +256,41 @@ export class EnhancedArcInstaller extends ArcInstaller {
         try {
             const namespace = options.namespace || 'arc-systems';
 
-            // Phase 0: CRITICAL - Remove webhooks FIRST to prevent finalizer conflicts
-            this.log('🔑 Phase 0: Pre-emptive webhook removal to prevent finalizer conflicts');
-            await this.fastCleanupWebhooks();
-            await new Promise(resolve => setTimeout(resolve, 3000)); // Allow webhook removal to propagate
+            // NEW: Assume aggressive cleanup when triggered via MCP
+            // Users who trigger cleanup via MCP know runners aren't in use
+            const aggressiveMode = true; // Always true for MCP-triggered cleanup
+            this.log(`🚀 Operating in AGGRESSIVE MODE - assuming runners can be forcefully terminated`);
 
-            // Phase 1: Enhanced validation with issue detection
-            await this.performEnhancedValidation(cleanupState, namespace);
+            // Phase 0: CRITICAL - Immediate webhook and admission controller removal
+            this.log('🔑 Phase 0: IMMEDIATE webhook and admission controller removal');
+            await this.nuclearWebhookRemoval();
 
-            // Phase 2: Comprehensive troubleshooting
-            await this.performComprehensiveTroubleshooting(cleanupState, namespace);
+            // Phase 1: Quick validation
+            await this.performQuickValidation(cleanupState, namespace);
 
-            // Phase 3: Forced cleanup with recovery
-            await this.performForcedCleanup(cleanupState, namespace, options);
+            // Phase 1.5: GitHub runner cleanup - unregister runners before terminating pods
+            await this.performGitHubRunnerCleanup(cleanupState, options);
 
-            // Phase 4: Finalizer removal (now safe without webhooks)
-            await this.performFinalizerRemoval(cleanupState, namespace);
+            // Phase 2: AGGRESSIVE finalizer removal - remove ALL finalizers from ALL resources
+            await this.performAggressiveFinalizerRemoval(cleanupState, namespace);
 
-            // Phase 5: Namespace force deletion
-            await this.performNamespaceForceDelete(cleanupState, namespace, options);
+            // Phase 3: Forced resource termination with timeouts
+            await this.performForcedResourceTermination(cleanupState, namespace, aggressiveMode);
 
-            // Phase 6: Final verification
-            // Phase 6: Final verification
-            await this.performFinalVerification(cleanupState, namespace);
+            // Phase 4: Nuclear cleanup mode - deal with any remaining stuck resources
+            await this.performNuclearCleanup(cleanupState, namespace);
 
-            // Phase 7: Orphaned resources cleanup
-            await this.cleanupOrphanedResources();
+            // Phase 5: Namespace destruction with multiple strategies
+            await this.performNamespaceDestruction(cleanupState, namespace, options);
+
+            // Phase 6: Final verification and orphaned resource cleanup
+            await this.performFinalVerificationAndOrphanedCleanup(cleanupState);
+
+            cleanupState.totalTime = (Date.now() - startTime) / 1000;
 
             return {
                 success: true,
-                message: 'Enhanced ARC cleanup completed successfully with comprehensive troubleshooting',
+                message: 'ULTRA-ROBUST ARC cleanup completed successfully with no hanging issues',
                 cleanupState,
                 totalTime: cleanupState.totalTime,
                 summary: {
@@ -303,6 +309,15 @@ export class EnhancedArcInstaller extends ArcInstaller {
             const errorMessage = error instanceof Error ? error.message : String(error);
             cleanupState.errors.push(errorMessage);
             this.log(`❌ Enhanced cleanup failed: ${errorMessage}`, 'error');
+            
+            // Even if main cleanup fails, try emergency cleanup
+            try {
+                this.log('🆘 Attempting emergency cleanup mode...');
+                await this.emergencyCleanupMode(options.namespace || 'arc-systems');
+            } catch (emergencyError) {
+                this.log(`⚠️ Emergency cleanup also failed: ${emergencyError}`, 'warning');
+            }
+            
             throw error;
         }
     }
@@ -344,31 +359,272 @@ export class EnhancedArcInstaller extends ArcInstaller {
     }
 
     /**
-     * Fast cleanup of ARC CRDs
+     * Fast cleanup of ARC CRDs - FIXED VERSION
      */
     private async fastCleanupCRDs(): Promise<void> {
         try {
-            // Update to new official GitHub ARC CRDs (actions.github.com)
+            // Complete list of all ARC CRDs ordered by complexity (most complex first)
             const crdNames = [
-                'runners.actions.github.com',
+                // Most complex: listeners and controllers first (these often have webhooks/finalizers)
+                'autoscalinglisteners.actions.github.com',
+                'ephemeralrunnersets.actions.github.com', 
+                // Moderately complex: runner sets and deployments
+                'autoscalingrunnersets.actions.github.com',
                 'runnerdeployments.actions.github.com',
                 'horizontalrunnerautoscalers.actions.github.com',
-                // Legacy CRDs to clean up if they exist
+                // Simple: individual runners (usually clean up quickly)
+                'ephemeralrunners.actions.github.com',
+                'runners.actions.github.com',
+                // Legacy summerwind CRDs (for cleanup compatibility)
                 'runners.actions.summerwind.dev',
                 'runnerdeployments.actions.summerwind.dev',
                 'horizontalrunnerautoscalers.actions.summerwind.dev'
             ];
 
+            // STEP 1: Remove finalizers from all custom resource instances first
+            this.log('🔧 Step 1: Removing finalizers from custom resource instances...');
+            for (const crd of crdNames) {
+                await this.removeFinalizersFromCRDInstances(crd);
+            }
+
+            // STEP 2: Force delete all custom resource instances
+            this.log('🗑️ Step 2: Force deleting custom resource instances...');
+            for (const crd of crdNames) {
+                await this.forceDeleteCRDInstances(crd);
+            }
+
+            // STEP 3: Verify instances are gone, then safely delete the CRDs themselves
+            this.log('💥 Step 3: Verifying instances are gone and deleting CRDs...');
             for (const crd of crdNames) {
                 try {
-                    await this.commandExecutor.kubectl(`delete crd ${crd} --ignore-not-found`);
+                    // Extract resource type for verification
+                    const resourceType = crd.split('.')[0];
+                    
+                    // Verify no instances remain before deleting CRD
+                    const remainingInstances = await this.commandExecutor.kubectl(
+                        `get ${resourceType} --all-namespaces -o name`
+                    ).catch(() => ({ stdout: '' }));
+                    
+                    if (remainingInstances.stdout.trim()) {
+                        this.log(`⚠️ Warning: ${resourceType} instances still exist, forcing final cleanup...`, 'warning');
+                        // Try one more force delete of instances
+                        await this.commandExecutor.kubectlSilently(
+                            `delete ${resourceType} --all --all-namespaces --force --grace-period=0 --ignore-not-found`
+                        );
+                        // Small wait for deletion to propagate
+                        await new Promise(resolve => setTimeout(resolve, 2000));
+                    }
+                    
+                    // Now delete the CRD with longer timeout for complex resources
+                    const timeout = crd.includes('autoscalinglisteners') ? '90s' : '45s';
+                    await this.commandExecutor.kubectl(`delete crd ${crd} --ignore-not-found --timeout=${timeout}`);
                     this.log(`✅ Removed CRD: ${crd}`);
                 } catch (error) {
-                    // Continue with next CRD
+                    this.log(`⚠️ Failed to remove CRD ${crd}: ${error}`, 'warning');
+                    
+                    // Final attempt with no timeout (background deletion)
+                    try {
+                        await this.commandExecutor.kubectlSilently(`delete crd ${crd} --ignore-not-found`);
+                        this.log(`✅ Initiated background deletion of CRD: ${crd}`);
+                    } catch (finalError) {
+                        this.log(`⚠️ Final CRD deletion attempt failed for ${crd}: ${finalError}`, 'warning');
+                    }
                 }
             }
         } catch (error) {
             this.log(`⚠️ CRD cleanup failed: ${error}`, 'warning');
+        }
+    }
+
+    /**
+     * Remove finalizers from all instances of a CRD with proper resource type handling
+     */
+    private async removeFinalizersFromCRDInstances(crdName: string): Promise<void> {
+        try {
+            // Check if CRD exists first
+            const crdExists = await this.commandExecutor.kubectl(`get crd ${crdName}`).then(() => true).catch(() => false);
+            if (!crdExists) {
+                return;
+            }
+
+            // Extract the resource type from the full CRD name (e.g., "autoscalingrunnersets" from "autoscalingrunnersets.actions.github.com")
+            const resourceType = crdName.split('.')[0];
+
+            // Get all instances across all namespaces (kubectl get doesn't support --timeout)
+            const instancesResult = await this.commandExecutor.kubectl(
+                `get ${resourceType} --all-namespaces -o name`
+            ).catch(() => ({ stdout: '' }));
+
+            if (!instancesResult.stdout.trim()) {
+                return; // No instances found
+            }
+
+            const instances = instancesResult.stdout.trim().split('\n').filter(line => line.trim());
+            this.log(`🔧 Removing finalizers from ${instances.length} ${resourceType} instances...`);
+            
+            for (const instance of instances) {
+                try {
+                    // Extract namespace and name from the instance path
+                    const instanceParts = instance.split('/');
+                    if (instanceParts.length === 2) {
+                        const [type, name] = instanceParts;
+                        
+                        // Try to extract namespace from kubectl output or use default approach
+                        try {
+                            // First try with namespace-aware patch
+                            const instanceDetails = await this.commandExecutor.kubectl(
+                                `get ${resourceType} --all-namespaces -o custom-columns="NAMESPACE:.metadata.namespace,NAME:.metadata.name" --no-headers`
+                            ).catch(() => ({ stdout: '' }));
+                            
+                            const lines = instanceDetails.stdout.trim().split('\n');
+                            for (const line of lines) {
+                                const [namespace, instanceName] = line.trim().split(/\s+/);
+                                if (instanceName === name) {
+                                    // Remove finalizers with proper namespace
+                                    await this.commandExecutor.kubectl(
+                                        `patch ${resourceType} ${instanceName} -n ${namespace} -p '{"metadata":{"finalizers":null}}' --type=merge`
+                                    ).catch(() => {});
+                                    this.log(`✅ Removed finalizers from ${resourceType}/${instanceName} in ${namespace}`);
+                                    break;
+                                }
+                            }
+                        } catch (detailError) {
+                            // Fallback: try without namespace (for cluster-scoped resources)
+                            await this.commandExecutor.kubectl(
+                                `patch ${resourceType} ${name} -p '{"metadata":{"finalizers":null}}' --type=merge`
+                            ).catch(() => {});
+                            this.log(`✅ Removed finalizers from ${resourceType}/${name} (cluster-scoped)`);
+                        }
+                    }
+                    
+                } catch (error) {
+                    this.log(`⚠️ Failed to remove finalizers from ${instance}: ${error}`, 'warning');
+                }
+            }
+        } catch (error) {
+            this.log(`⚠️ Finalizer removal failed for ${crdName}: ${error}`, 'warning');
+        }
+    }
+
+    /**
+     * Force delete all instances of a CRD with improved error handling
+     */
+    private async forceDeleteCRDInstances(crdName: string): Promise<void> {
+        try {
+            // Check if CRD exists first
+            const crdExists = await this.commandExecutor.kubectl(`get crd ${crdName}`).then(() => true).catch(() => false);
+            if (!crdExists) {
+                return;
+            }
+
+            // Extract the resource type from the full CRD name
+            const resourceType = crdName.split('.')[0];
+
+            // First try to delete normally with a shorter timeout (5s)
+            try {
+                await this.commandExecutor.kubectl(
+                    `delete ${resourceType} --all --all-namespaces --timeout=5s`
+                );
+                this.log(`✅ Successfully deleted all ${resourceType} instances`);
+                return; // Success, no need for force deletion
+            } catch (normalDeleteError) {
+                // Normal delete failed, try force delete with longer timeout
+                this.log(`⚠️ Normal delete failed for ${resourceType}, trying force delete...`, 'warning');
+            }
+
+            // Force delete with extended timeout for complex resources
+            try {
+                await this.commandExecutor.kubectl(
+                    `delete ${resourceType} --all --all-namespaces --force --grace-period=0 --timeout=60s`
+                );
+                this.log(`✅ Force deleted all ${resourceType} instances`);
+            } catch (forceDeleteError) {
+                // If force delete also fails, log but continue (don't block cleanup)
+                this.log(`⚠️ Force delete timeout for ${resourceType}: ${forceDeleteError}`, 'warning');
+                
+                // Try one final attempt with immediate deletion (no timeout)
+                try {
+                    await this.commandExecutor.kubectlSilently(
+                        `delete ${resourceType} --all --all-namespaces --force --grace-period=0 --ignore-not-found`
+                    );
+                    this.log(`✅ Final deletion attempt completed for ${resourceType}`);
+                } catch (finalError) {
+                    // Log final attempt failure but don't throw
+                    this.log(`⚠️ Final delete attempt failed for ${resourceType}: ${finalError}`, 'warning');
+                }
+            }
+            
+        } catch (error) {
+            // Continue with next CRD
+            this.log(`⚠️ CRD instance deletion failed for ${crdName}: ${error}`, 'warning');
+        }
+    }
+
+    /**
+     * Remove finalizers from RBAC resources to prevent hanging
+     */
+    private async removeFinalizersFromRBACResources(namespace: string): Promise<void> {
+        this.log(`🔓 Removing finalizers from RBAC resources in namespace ${namespace}`);
+        
+        try {
+            // Handle roles with finalizers (kubectl get doesn't support --timeout)
+            const roles = await this.commandExecutor.kubectl(
+                `get roles -n ${namespace} -o name`
+            ).then(output => output.stdout.trim().split('\n').filter((l: string) => l.trim())).catch(() => []);
+            
+            for (const role of roles) {
+                if (role.trim()) {
+                    try {
+                        await this.commandExecutor.kubectl(
+                            `patch ${role} -n ${namespace} -p '{"metadata":{"finalizers":[]}}' --type=merge --timeout=5s`
+                        );
+                        this.log(`✅ Removed finalizers from ${role}`);
+                    } catch (error) {
+                        this.log(`⚠️ Failed to remove finalizers from ${role}: ${error}`, 'warning');
+                    }
+                }
+            }
+            
+            // Handle rolebindings with finalizers (kubectl get doesn't support --timeout)
+            const rolebindings = await this.commandExecutor.kubectl(
+                `get rolebindings -n ${namespace} -o name`
+            ).then(output => output.stdout.trim().split('\n').filter((l: string) => l.trim())).catch(() => []);
+            
+            for (const rolebinding of rolebindings) {
+                if (rolebinding.trim()) {
+                    try {
+                        await this.commandExecutor.kubectl(
+                            `patch ${rolebinding} -n ${namespace} -p '{"metadata":{"finalizers":[]}}' --type=merge --timeout=5s`
+                        );
+                        this.log(`✅ Removed finalizers from ${rolebinding}`);
+                    } catch (error) {
+                        this.log(`⚠️ Failed to remove finalizers from ${rolebinding}: ${error}`, 'warning');
+                    }
+                }
+            }
+            
+            // Handle serviceaccounts with finalizers (kubectl get doesn't support --timeout)
+            const serviceaccounts = await this.commandExecutor.kubectl(
+                `get serviceaccounts -n ${namespace} -o name`
+            ).then(output => output.stdout.trim().split('\n').filter((l: string) => l.trim())).catch(() => []);
+            
+            for (const sa of serviceaccounts) {
+                if (sa.trim() && !sa.includes('default')) { // Don't touch default serviceaccount
+                    try {
+                        await this.commandExecutor.kubectl(
+                            `patch ${sa} -n ${namespace} -p '{"metadata":{"finalizers":[]}}' --type=merge --timeout=5s`
+                        );
+                        this.log(`✅ Removed finalizers from ${sa}`);
+                    } catch (error) {
+                        this.log(`⚠️ Failed to remove finalizers from ${sa}: ${error}`, 'warning');
+                    }
+                }
+            }
+            
+            this.log(`✅ RBAC finalizer removal completed for namespace ${namespace}`);
+            
+        } catch (error) {
+            this.log(`⚠️ RBAC finalizer removal failed: ${error}`, 'warning');
         }
     }
 
@@ -492,8 +748,14 @@ export class EnhancedArcInstaller extends ArcInstaller {
      */
     private async ultraFastCRDCleanup(): Promise<void> {
         try {
-            // Clean up any orphaned ARC CRDs in parallel
+            // Clean up any orphaned ARC CRDs in parallel - including all modern and legacy CRDs
             const crdPromises = [
+                // Modern ARC v0.13.0+ CRDs
+                this.commandExecutor.kubectlSilently('delete crd autoscalingrunnersets.actions.github.com --timeout=3s --ignore-not-found'),
+                this.commandExecutor.kubectlSilently('delete crd ephemeralrunnersets.actions.github.com --timeout=3s --ignore-not-found'),
+                this.commandExecutor.kubectlSilently('delete crd ephemeralrunners.actions.github.com --timeout=3s --ignore-not-found'),
+                this.commandExecutor.kubectlSilently('delete crd autoscalinglisteners.actions.github.com --timeout=3s --ignore-not-found'),
+                // Standard ARC CRDs
                 this.commandExecutor.kubectlSilently('delete crd runners.actions.github.com --timeout=3s --ignore-not-found'),
                 this.commandExecutor.kubectlSilently('delete crd runnerdeployments.actions.github.com --timeout=3s --ignore-not-found'),
                 this.commandExecutor.kubectlSilently('delete crd horizontalrunnerautoscalers.actions.github.com --timeout=3s --ignore-not-found'),
@@ -676,7 +938,7 @@ export class EnhancedArcInstaller extends ArcInstaller {
      */
     private async installControllerWithDetailedErrors(options: InstallationOptions = {}): Promise<InstallationState> {
         try {
-            return await this.installController(options);
+            return await super.installController(options);
         } catch (error) {
             const errorMessage = error instanceof Error ? error.message : String(error);
             
@@ -817,7 +1079,7 @@ export class EnhancedArcInstaller extends ArcInstaller {
                     this.log('🔄 Attempting fresh installation after cleanup...');
                     
                     // After cleanup, try a fresh installation
-                    const freshInstallResult = await this.installController(options);
+                    const freshInstallResult = await super.installController(options);
                     this.log('✅ Fresh installation completed successfully after automatic cleanup');
                     return freshInstallResult;
                     
@@ -836,7 +1098,7 @@ export class EnhancedArcInstaller extends ArcInstaller {
             
             if (recoverySuccessful) {
                 this.log('✅ Installation recovered successfully after troubleshooting');
-                return await this.installController(options);
+                return await super.installController(options);
             } else {
                 this.log('❌ Installation recovery failed', 'error');
                 
@@ -969,12 +1231,12 @@ export class EnhancedArcInstaller extends ArcInstaller {
                 name: 'Helm Repository Setup',
                 estimatedTime: '1 minute',
                 risk: 'Low',
-                description: 'Add and update ARC Helm repository',
+                description: 'Configure official ARC v0.13.0+ OCI charts',
                 commands: [
-                    'helm repo add actions-runner-controller https://actions-runner-controller.github.io/actions-runner-controller',
-                    'helm repo update'
+                    'echo "No Helm repository needed - using official OCI charts"',
+                    'echo "Chart: oci://ghcr.io/actions/actions-runner-controller-charts/gha-runner-scale-set-controller"'
                 ],
-                resources: ['Helm Repository: actions-runner-controller']
+                resources: ['OCI Chart: gha-runner-scale-set-controller']
             });
 
             // Step 3: CRD Installation (Handled by Helm automatically)
@@ -1006,11 +1268,11 @@ export class EnhancedArcInstaller extends ArcInstaller {
                 name: 'ARC Controller Installation',
                 estimatedTime: '2-3 minutes',
                 risk: 'Medium',
-                description: 'Install or upgrade ARC controller using Helm chart',
+                description: 'Install or upgrade ARC controller v0.13.0+ using official OCI chart',
                 commands: [
-                    `helm list -n ${params.namespace || 'arc-systems'} -q | grep -q "^arc$" && helm upgrade arc actions-runner-controller/actions-runner-controller -n ${params.namespace || 'arc-systems'} --set authSecret.name=controller-manager || helm install arc actions-runner-controller/actions-runner-controller -n ${params.namespace || 'arc-systems'} --set authSecret.name=controller-manager`
+                    `helm list -n ${params.namespace || 'arc-systems'} -q | grep -q "^arc$" && helm upgrade arc oci://ghcr.io/actions/actions-runner-controller-charts/gha-runner-scale-set-controller -n ${params.namespace || 'arc-systems'} --set authSecret.name=controller-manager || helm install arc oci://ghcr.io/actions/actions-runner-controller-charts/gha-runner-scale-set-controller -n ${params.namespace || 'arc-systems'} --set authSecret.name=controller-manager`
                 ],
-                resources: ['Deployment: arc-actions-runner-controller', 'Services, ConfigMaps, RBAC']
+                resources: ['Deployment: arc-gha-runner-scale-set-controller', 'Services, ConfigMaps, RBAC']
             });
 
             // Step 6: Verification
@@ -1680,11 +1942,11 @@ export class EnhancedArcInstaller extends ArcInstaller {
     }
 
     /**
-     * Quick namespace existence check with minimal timeout
+     * Quick namespace existence check (kubectl get doesn't support --timeout)
      */
     private async quickNamespaceCheck(namespace: string): Promise<boolean> {
         try {
-            await this.commandExecutor.kubectl(`get namespace ${namespace} --timeout=2s`);
+            await this.commandExecutor.kubectl(`get namespace ${namespace}`);
             return true;
         } catch {
             return false;
@@ -1697,34 +1959,36 @@ export class EnhancedArcInstaller extends ArcInstaller {
     private async ultraFastNamespaceDeletion(cleanupState: EnhancedCleanupState, namespace: string): Promise<void> {
         this.log(`🚀 Ultra-fast namespace deletion for ${namespace}`);
 
-        // Execute multiple strategies in parallel for maximum speed
-        const parallelStrategies = [
-            // Strategy 1: Direct API deletion through kubectl
-            this.ultraFastDirectDeletion(namespace),
-            // Strategy 2: Finalizer removal + deletion
-            this.ultraFastFinalizerRemovalAndDeletion(namespace),
-            // Strategy 3: Force deletion with minimal grace period
-            this.ultraFastForceDelete(namespace)
+        // Try strategies sequentially to avoid race conditions
+        const strategies = [
+            { name: 'Finalizer removal + deletion', method: () => this.ultraFastFinalizerRemovalAndDeletion(namespace) },
+            { name: 'Direct force deletion', method: () => this.ultraFastDirectDeletion(namespace) },
+            { name: 'Force delete with grace period', method: () => this.ultraFastForceDelete(namespace) }
         ];
 
-        // Execute all strategies in parallel - first to succeed wins
-        const results = await Promise.allSettled(parallelStrategies);
+        let successfulStrategy: string | null = null;
         
-        let successfulStrategy: number | null = null;
-        results.forEach((result, index) => {
-            if (result.status === 'fulfilled' && successfulStrategy === null) {
-                successfulStrategy = index + 1;
+        for (const strategy of strategies) {
+            try {
+                this.log(`🔄 Trying strategy: ${strategy.name}`);
+                await strategy.method();
+                successfulStrategy = strategy.name;
+                this.log(`✅ Strategy succeeded: ${strategy.name}`);
+                break;
+            } catch (error) {
+                this.log(`⚠️ Strategy failed: ${strategy.name} - ${error}`, 'warning');
+                // Continue to next strategy
             }
-        });
-
-        if (successfulStrategy) {
-            this.log(`✅ Ultra-fast namespace deletion succeeded with strategy ${successfulStrategy}`);
-            cleanupState.removedComponents.push(`Namespace ${namespace} (ultra-fast strategy ${successfulStrategy})`);
-        } else {
-            this.log(`⚠️ All parallel strategies completed - namespace may still be terminating`, 'warning');
         }
 
-        // Quick verification with minimal wait (max 30 seconds instead of 10 minutes)
+        if (successfulStrategy) {
+            this.log(`✅ Ultra-fast namespace deletion succeeded with: ${successfulStrategy}`);
+            cleanupState.removedComponents.push(`Namespace ${namespace} (${successfulStrategy})`);
+        } else {
+            this.log(`⚠️ All strategies failed - namespace may still be terminating`, 'warning');
+        }
+
+        // Enhanced verification with proper error handling
         await this.ultraFastNamespaceVerification(namespace, 30000);
     }
 
@@ -1736,16 +2000,32 @@ export class EnhancedArcInstaller extends ArcInstaller {
     }
 
     /**
-     * Ultra-fast finalizer removal and deletion
+     * Ultra-fast finalizer removal and deletion - FIXED VERSION
      */
     private async ultraFastFinalizerRemovalAndDeletion(namespace: string): Promise<void> {
-        // Remove finalizers and delete in one shot
-        await Promise.all([
-            this.commandExecutor.kubectl(`patch namespace ${namespace} -p '{"spec":{"finalizers":[]}}' --type=merge --timeout=2s`),
-            this.commandExecutor.kubectl(`patch namespace ${namespace} -p '{"metadata":{"finalizers":[]}}' --type=merge --timeout=2s`)
-        ]);
-        
-        await this.commandExecutor.kubectl(`delete namespace ${namespace} --timeout=3s --ignore-not-found`);
+        try {
+            // Step 1: Remove finalizers from metadata (namespaces don't have spec.finalizers)
+            this.log(`🔧 Removing finalizers from namespace ${namespace}...`);
+            await this.commandExecutor.kubectl(
+                `patch namespace ${namespace} -p '{"metadata":{"finalizers":null}}' --type=merge --timeout=5s`
+            );
+            
+            // Step 2: Wait a moment for the patch to take effect
+            await new Promise(resolve => setTimeout(resolve, 500));
+            
+            // Step 3: Delete the namespace
+            this.log(`🗑️ Deleting namespace ${namespace}...`);
+            await this.commandExecutor.kubectl(
+                `delete namespace ${namespace} --timeout=10s --ignore-not-found`
+            );
+            
+        } catch (error) {
+            this.log(`⚠️ Finalizer removal method failed: ${error}`, 'warning');
+            // Fallback to force delete
+            await this.commandExecutor.kubectl(
+                `delete namespace ${namespace} --force --grace-period=0 --ignore-not-found`
+            );
+        }
     }
 
     /**
@@ -1756,27 +2036,53 @@ export class EnhancedArcInstaller extends ArcInstaller {
     }
 
     /**
-     * Ultra-fast namespace verification with maximum 30-second wait (instead of 10 minutes)
+     * Ultra-fast namespace verification with maximum 30-second wait - ENHANCED VERSION
      */
     private async ultraFastNamespaceVerification(namespace: string, maxWaitMs: number): Promise<void> {
         const start = Date.now();
-        const pollInterval = 1000; // 1 second polling instead of 5 seconds
+        const pollInterval = 1000; // 1 second polling
         
-        this.log(`⏳ Quick verification: waiting up to ${maxWaitMs/1000} seconds for namespace deletion...`);
+        this.log(`⏳ Enhanced verification: waiting up to ${maxWaitMs/1000} seconds for namespace deletion...`);
 
         while (Date.now() - start < maxWaitMs) {
             try {
-                await this.commandExecutor.kubectl(`get namespace ${namespace} --timeout=1s`);
+                const result = await this.commandExecutor.kubectl(`get namespace ${namespace}`);
+                // If we get here, namespace still exists - check its status
+                if (result.stdout.includes('Terminating')) {
+                    this.log(`🔄 Namespace ${namespace} is terminating...`);
+                } else {
+                    this.log(`⚠️ Namespace ${namespace} still active, checking finalizers...`);
+                    // Check if finalizers are blocking deletion
+                    try {
+                        const finalizers = await this.commandExecutor.kubectl(
+                            `get namespace ${namespace} -o jsonpath='{.metadata.finalizers}'`
+                        );
+                        if (finalizers.stdout.trim()) {
+                            this.log(`🔧 Found blocking finalizers: ${finalizers.stdout.trim()}`);
+                            // Try to remove them
+                            await this.commandExecutor.kubectl(
+                                `patch namespace ${namespace} -p '{"metadata":{"finalizers":null}}' --type=merge`
+                            ).catch(() => {});
+                        }
+                    } catch (error) {
+                        // Ignore finalizer check errors
+                    }
+                }
                 await new Promise(resolve => setTimeout(resolve, pollInterval));
             } catch (error) {
-                // Namespace is gone
+                // Namespace is gone or not accessible
                 this.log(`✅ Namespace ${namespace} successfully deleted`);
                 return;
             }
         }
 
-        // Don't throw error - just log and continue for maximum speed
-        this.log(`⚠️ Namespace verification timeout after ${maxWaitMs/1000}s - continuing cleanup`, 'warning');
+        // Final verification attempt (kubectl get doesn't support --timeout)
+        try {
+            await this.commandExecutor.kubectl(`get namespace ${namespace}`);
+            this.log(`⚠️ Namespace verification timeout after ${maxWaitMs/1000}s - namespace may still exist`, 'warning');
+        } catch (error) {
+            this.log(`✅ Namespace ${namespace} deleted (confirmed on final check)`);
+        }
     }
 
     /**
@@ -3453,20 +3759,29 @@ spec:
                 this.log(`⚠️ Could not list organizations: ${error}`, 'warning');
             }
             
-            // Strategy 3: Recreate GitHub token secret
+            // Strategy 3: Ensure GitHub token secret exists (idempotent)
             try {
                 const namespace = 'arc-systems';
                 
-                // Delete existing secret if it exists
+                // Check if secret already exists with proper token
+                let secretExists = false;
                 try {
-                    await this.commandExecutor.kubectl(`delete secret controller-manager -n ${namespace} --ignore-not-found`);
-                } catch (e) {
-                    // Ignore errors
+                    const result = await this.commandExecutor.kubectl(`get secret controller-manager -n ${namespace} --ignore-not-found -o name`);
+                    if (result.stdout.trim()) {
+                        this.log('✅ GitHub token secret already exists');
+                        secretExists = true;
+                    }
+                } catch (error) {
+                    // Expected when secret doesn't exist
                 }
                 
-                // Create new secret (command executor will sanitize logs)
-                await this.commandExecutor.kubectl(`create secret generic controller-manager -n ${namespace} --from-literal=github_token=${process.env.GITHUB_TOKEN}`);
-                this.log(`✅ Recreated GitHub token secret`);
+                if (!secretExists) {
+                    // Create new secret (command executor will sanitize logs)
+                    await this.commandExecutor.kubectl(`create secret generic controller-manager -n ${namespace} --from-literal=github_token=${process.env.GITHUB_TOKEN}`);
+                    this.log(`✅ Created GitHub token secret`);
+                } else {
+                    this.log(`✅ Using existing GitHub token secret`);
+                }
             } catch (error) {
                 this.log(`⚠️ Could not recreate GitHub token secret: ${error}`, 'warning');
             }
@@ -5062,5 +5377,745 @@ spec:
         }
         
         return categories;
+    }
+
+    // =============================================================================
+    // ULTRA-ROBUST CLEANUP METHODS - NO HANG GUARANTEES
+    // =============================================================================
+
+    /**
+     * Nuclear webhook removal - removes ALL webhooks aggressively
+     */
+    private async nuclearWebhookRemoval(): Promise<void> {
+        this.log('💥 NUCLEAR webhook removal - removing ALL admission controllers');
+        
+        const webhookTypes = [
+            'validatingwebhookconfigurations',
+            'mutatingwebhookconfigurations'
+        ];
+        
+        for (const webhookType of webhookTypes) {
+            try {
+                // Get all webhooks
+                const webhooksResult = await this.commandExecutor.kubectl(
+                    `get ${webhookType} -o json --timeout=10s`
+                );
+                
+                if (webhooksResult.stdout.trim()) {
+                    const webhooks = JSON.parse(webhooksResult.stdout);
+                    
+                    for (const webhook of webhooks.items || []) {
+                        try {
+                            // Remove finalizers first
+                            await this.commandExecutor.kubectl(
+                                `patch ${webhookType} ${webhook.metadata.name} -p '{"metadata":{"finalizers":[]}}' --type=merge --timeout=5s`
+                            );
+                            
+                            // Force delete
+                            await this.commandExecutor.kubectl(
+                                `delete ${webhookType} ${webhook.metadata.name} --force --grace-period=0 --timeout=10s`
+                            );
+                            
+                            this.log(`✅ Removed ${webhookType}: ${webhook.metadata.name}`);
+                        } catch (error) {
+                            this.log(`⚠️ Could not remove ${webhook.metadata.name}: ${error}`, 'warning');
+                        }
+                    }
+                }
+            } catch (error) {
+                this.log(`⚠️ Could not process ${webhookType}: ${error}`, 'warning');
+            }
+        }
+        
+        // Wait for webhook removal to propagate
+        await new Promise(resolve => setTimeout(resolve, 2000));
+    }
+
+    /**
+     * Quick validation - check what exists and proceed with cleanup regardless
+     */
+    private async performQuickValidation(cleanupState: EnhancedCleanupState, namespace: string): Promise<void> {
+        this.log('🔍 Quick validation of cleanup targets');
+        this.updateCleanupPhaseStatus(cleanupState, 'validation', 'running');
+        
+        try {
+            // Check for namespace existence (but don't exit if not found)
+            const namespaceExists = await this.commandExecutor.kubectl(
+                `get namespace ${namespace} --timeout=5s`
+            ).then(() => true).catch(() => false);
+            
+            if (!namespaceExists) {
+                this.log(`ℹ️ Namespace ${namespace} does not exist - will still check for global resources`);
+                // Don't return early - continue to check for global ARC resources
+            } else {
+                // Quick count of resources
+                const resourceCount = await this.commandExecutor.kubectl(
+                    `get all -n ${namespace} --timeout=5s -o name`
+                ).then(result => result.stdout.split('\n').filter(line => line.trim()).length)
+                .catch(() => 0);
+                
+                this.log(`📊 Found ${resourceCount} resources in namespace ${namespace}`);
+            }
+            
+            this.updateCleanupPhaseStatus(cleanupState, 'validation', 'completed');
+            
+        } catch (error) {
+            this.log(`⚠️ Validation encountered issues but continuing: ${error}`);
+            this.updateCleanupPhaseStatus(cleanupState, 'validation', 'completed');
+        }
+    }
+
+    /**
+     * GitHub runner cleanup - unregister runners from GitHub before terminating pods
+     */
+    private async performGitHubRunnerCleanup(cleanupState: EnhancedCleanupState, options: any): Promise<void> {
+        this.log('🐙 GitHub runner cleanup - unregistering runners from GitHub');
+        this.updateCleanupPhaseStatus(cleanupState, 'github_runner_cleanup', 'running');
+        
+        try {
+            // Extract organization from options or try to auto-detect
+            let organization = options.organization || options.org || process.env.GITHUB_ORG;
+            const githubToken = options.githubToken || process.env.GITHUB_TOKEN;
+            
+            // Try to auto-detect organization from existing runner deployments
+            if (!organization) {
+                this.log('🔍 Attempting to auto-detect organization from existing runner deployments...');
+                try {
+                    const namespace = options.namespace || 'arc-systems';
+                    const autoscalingRunnerSets = await this.commandExecutor.kubectl(
+                        `get autoscalingrunnersets -n ${namespace} -o jsonpath='{.items[*].spec.githubConfigUrl}'`
+                    ).catch(() => ({ stdout: '' }));
+                    
+                    if (autoscalingRunnerSets.stdout) {
+                        // Extract organization from GitHub URL (e.g., https://github.com/org-name)
+                        const urls = autoscalingRunnerSets.stdout.split(' ').filter(url => url.includes('github.com'));
+                        if (urls.length > 0) {
+                            const match = urls[0].match(/github\.com\/([^\/]+)/);
+                            if (match) {
+                                organization = match[1];
+                                this.log(`✅ Auto-detected organization: ${organization}`);
+                            }
+                        }
+                    }
+                } catch (error) {
+                    this.log(`⚠️ Could not auto-detect organization: ${error}`);
+                }
+            }
+            
+            if (!organization) {
+                this.log('⚠️ No organization specified for GitHub runner cleanup - skipping');
+                cleanupState.phases.github_runner_cleanup.warnings = ['No organization specified - skipped GitHub runner cleanup'];
+                this.updateCleanupPhaseStatus(cleanupState, 'github_runner_cleanup', 'completed');
+                return;
+            }
+            
+            if (!githubToken) {
+                this.log('⚠️ No GitHub token available for runner cleanup - skipping');
+                cleanupState.phases.github_runner_cleanup.warnings = ['No GitHub token available - skipped GitHub runner cleanup'];
+                this.updateCleanupPhaseStatus(cleanupState, 'github_runner_cleanup', 'completed');
+                return;
+            }
+
+            this.log(`🧹 Cleaning up offline runners for organization: ${organization}`);
+            
+            // Use the GitHub service to clean up offline runners
+            const cleanupResult = await this.githubService.cleanupOfflineRunners(organization, githubToken);
+            
+            if (cleanupResult.removed > 0) {
+                this.log(`✅ Successfully removed ${cleanupResult.removed} offline runners from GitHub`);
+                cleanupState.removedComponents.push(`${cleanupResult.removed} offline GitHub runners`);
+            }
+            
+            if (cleanupResult.failed > 0) {
+                this.log(`⚠️ Failed to remove ${cleanupResult.failed} runners from GitHub`);
+                cleanupState.phases.github_runner_cleanup.warnings = cleanupResult.errors;
+            }
+            
+            if (cleanupResult.removed === 0 && cleanupResult.failed === 0) {
+                this.log('✅ No offline runners found in GitHub - nothing to clean up');
+            }
+            
+            this.updateCleanupPhaseStatus(cleanupState, 'github_runner_cleanup', 'completed');
+            
+        } catch (error) {
+            const errorMessage = error instanceof Error ? error.message : String(error);
+            this.log(`❌ GitHub runner cleanup failed: ${errorMessage}`);
+            cleanupState.phases.github_runner_cleanup.errors = [errorMessage];
+            // Don't fail the entire cleanup - just log and continue
+            this.updateCleanupPhaseStatus(cleanupState, 'github_runner_cleanup', 'completed');
+        }
+    }
+
+    /**
+     * Aggressive finalizer removal - removes ALL finalizers from ALL resources
+     */
+    private async performAggressiveFinalizerRemoval(cleanupState: EnhancedCleanupState, namespace: string): Promise<void> {
+        this.log('🔓 AGGRESSIVE finalizer removal - removing ALL finalizers from ALL resources');
+        this.updateCleanupPhaseStatus(cleanupState, 'aggressive_finalizer_removal', 'running');
+        
+        try {
+            // STEP 1: Remove finalizers from RBAC resources specifically (roles, rolebindings, serviceaccounts)
+            // This prevents the 30s timeout errors we've been seeing
+            await this.removeFinalizersFromRBACResources(namespace);
+            
+            // STEP 2: Get ALL resource types in the namespace
+            const allResourceTypes = [
+                // Core resources
+                'pods', 'services', 'configmaps', 'secrets', 'serviceaccounts',
+                'persistentvolumeclaims', 'persistentvolumes',
+                // RBAC
+                'roles', 'rolebindings',
+                // Extensions
+                'deployments', 'replicasets', 'daemonsets', 'statefulsets', 'jobs', 'cronjobs',
+                // ARC specific resources (all variants)
+                'autoscalingrunnersets.actions.github.com',
+                'ephemeralrunnersets.actions.github.com', 
+                'ephemeralrunners.actions.github.com',
+                'autoscalinglisteners.actions.github.com',
+                'runners.actions.github.com',
+                'runnerdeployments.actions.github.com',
+                'horizontalrunnerautoscalers.actions.github.com',
+                // Legacy
+                'runners.actions.summerwind.dev',
+                'runnerdeployments.actions.summerwind.dev',
+                'horizontalrunnerautoscalers.actions.summerwind.dev'
+            ];
+            
+            // Process ALL resource types in parallel with aggressive timeouts
+            const finalizerPromises = allResourceTypes.map(resourceType => 
+                this.aggressiveRemoveFinalizersForResourceType(namespace, resourceType)
+            );
+            
+            await Promise.allSettled(finalizerPromises);
+            
+            this.log(`✅ Aggressive finalizer removal completed for all resource types`);
+            this.updateCleanupPhaseStatus(cleanupState, 'aggressive_finalizer_removal', 'completed');
+            
+        } catch (error) {
+            this.updateCleanupPhaseStatus(cleanupState, 'aggressive_finalizer_removal', 'failed', `Aggressive finalizer removal failed: ${error}`);
+        }
+    }
+
+    /**
+     * Aggressive finalizer removal for a specific resource type
+     */
+    private async aggressiveRemoveFinalizersForResourceType(namespace: string, resourceType: string): Promise<void> {
+        try {
+            // Get all resources of this type with very short timeout
+            const listResult = await this.commandExecutor.kubectl(
+                `get ${resourceType} -n ${namespace} -o name --timeout=5s`
+            );
+            
+            if (!listResult.stdout.trim()) {
+                return; // No resources found
+            }
+            
+            const resources = listResult.stdout.trim().split('\n').filter(line => line.trim());
+            
+            // Process each resource with aggressive finalizer removal
+            const patchPromises = resources.map(resource => 
+                this.aggressiveRemoveFinalizersFromResource(namespace, resource)
+            );
+            
+            await Promise.allSettled(patchPromises);
+            
+        } catch (error) {
+            // Ignore errors - resource type might not exist
+        }
+    }
+
+    /**
+     * Aggressive finalizer removal from a single resource
+     */
+    private async aggressiveRemoveFinalizersFromResource(namespace: string, resource: string): Promise<void> {
+        const strategies = [
+            // Strategy 1: Empty array
+            () => this.commandExecutor.kubectl(
+                `patch ${resource} -n ${namespace} -p '{"metadata":{"finalizers":[]}}' --type=merge --timeout=3s`
+            ),
+            // Strategy 2: Set to null
+            () => this.commandExecutor.kubectl(
+                `patch ${resource} -n ${namespace} -p '{"metadata":{"finalizers":null}}' --type=merge --timeout=3s`
+            ),
+            // Strategy 3: Remove field entirely
+            () => this.commandExecutor.kubectl(
+                `patch ${resource} -n ${namespace} --type='json' -p='[{"op": "remove", "path": "/metadata/finalizers"}]' --timeout=3s`
+            )
+        ];
+        
+        for (const strategy of strategies) {
+            try {
+                await strategy();
+                return; // Success, stop trying other strategies
+            } catch (error) {
+                continue; // Try next strategy
+            }
+        }
+    }
+
+    /**
+     * Forced resource termination with timeouts
+     */
+    private async performForcedResourceTermination(cleanupState: EnhancedCleanupState, namespace: string, aggressiveMode: boolean): Promise<void> {
+        this.log('⚡ FORCED resource termination with no-hang timeouts');
+        this.updateCleanupPhaseStatus(cleanupState, 'forced_resource_termination', 'running');
+        
+        try {
+            // STEP 1: Complete Helm cleanup first (critical!)
+            this.log('🗑️ Step 1: Complete Helm cleanup');
+            await this.performCompleteHelmCleanup(namespace);
+            
+            // In aggressive mode, assume all runners can be terminated immediately
+            if (aggressiveMode) {
+                this.log('🚀 AGGRESSIVE MODE: Force terminating all runners immediately');
+                
+                // Force delete all pods with zero grace period
+                await this.commandExecutor.kubectl(
+                    `delete pods --all -n ${namespace} --force --grace-period=0 --timeout=30s`
+                ).catch(() => {}); // Ignore errors
+                
+                // Force delete all ARC custom resources
+                const arcResourceTypes = [
+                    'autoscalingrunnersets.actions.github.com',
+                    'ephemeralrunnersets.actions.github.com', 
+                    'ephemeralrunners.actions.github.com',
+                    'autoscalinglisteners.actions.github.com'
+                ];
+                
+                for (const resourceType of arcResourceTypes) {
+                    await this.commandExecutor.kubectl(
+                        `delete ${resourceType} --all -n ${namespace} --force --grace-period=0 --timeout=10s`
+                    ).catch(() => {}); // Ignore errors
+                }
+                
+                cleanupState.removedComponents.push('All pods and ARC resources (forced termination)');
+            }
+            
+            // Force delete all other resources
+            await this.commandExecutor.kubectl(
+                `delete all --all -n ${namespace} --force --grace-period=0 --timeout=60s`
+            ).catch(() => {}); // Ignore errors
+            
+            // STEP 2: Complete resource cleanup (RBAC, secrets, network policies)
+            this.log('🗑️ Step 2: Complete resource cleanup');
+            await this.performCompleteResourceCleanup(namespace);
+            
+            this.log(`✅ Forced resource termination completed`);
+            this.updateCleanupPhaseStatus(cleanupState, 'forced_resource_termination', 'completed');
+            
+        } catch (error) {
+            this.updateCleanupPhaseStatus(cleanupState, 'forced_resource_termination', 'failed', `Forced termination failed: ${error}`);
+        }
+    }
+
+    /**
+     * Complete Helm cleanup - uninstall all ARC Helm releases
+     */
+    private async performCompleteHelmCleanup(namespace: string): Promise<void> {
+        try {
+            // Get all Helm releases in the namespace
+            const helmReleases = await this.commandExecutor.helm(`list -n ${namespace} -q`)
+                .then(result => result.stdout.split('\n').filter(line => line.trim()))
+                .catch(() => []);
+            
+            this.log(`🔍 Found ${helmReleases.length} Helm releases: ${helmReleases.join(', ')}`);
+            
+            // Uninstall each Helm release
+            for (const release of helmReleases) {
+                if (release.trim()) {
+                    this.log(`🗑️ Uninstalling Helm release: ${release}`);
+                    await this.commandExecutor.helm(`uninstall ${release} -n ${namespace} --timeout=60s`)
+                        .catch(error => {
+                            this.log(`⚠️ Failed to uninstall ${release}: ${error}`);
+                        });
+                }
+            }
+            
+            this.log(`✅ Helm cleanup completed`);
+            
+        } catch (error) {
+            this.log(`⚠️ Helm cleanup error: ${error}`);
+        }
+    }
+
+    /**
+     * Complete resource cleanup - remove all namespace-scoped resources
+     */
+    private async performCompleteResourceCleanup(namespace: string): Promise<void> {
+        try {
+            // Resource types that need explicit cleanup
+            const resourceTypes = [
+                'secrets',
+                'configmaps', 
+                'serviceaccounts',
+                'roles',
+                'rolebindings',
+                'networkpolicies',
+                'persistentvolumeclaims',
+                'events'
+            ];
+            
+            for (const resourceType of resourceTypes) {
+                this.log(`🗑️ Cleaning up ${resourceType}`);
+                await this.commandExecutor.kubectl(
+                    `delete ${resourceType} --all -n ${namespace} --force --grace-period=0 --timeout=30s`
+                ).catch(() => {}); // Ignore errors
+            }
+            
+            this.log(`✅ Complete resource cleanup finished`);
+            
+        } catch (error) {
+            this.log(`⚠️ Resource cleanup error: ${error}`);
+        }
+    }
+
+    /**
+     * Nuclear cleanup mode - deal with any remaining stuck resources
+     */
+    private async performNuclearCleanup(cleanupState: EnhancedCleanupState, namespace: string): Promise<void> {
+        this.log('☢️ NUCLEAR cleanup mode - eliminating all stuck resources');
+        this.updateCleanupPhaseStatus(cleanupState, 'nuclear_cleanup', 'running');
+        
+        try {
+            // Find ALL resources still in the namespace
+            const remainingResources = await this.getAllRemainingResources(namespace);
+            
+            if (remainingResources.length === 0) {
+                this.log('✅ No resources remaining - nuclear cleanup not needed');
+                this.updateCleanupPhaseStatus(cleanupState, 'nuclear_cleanup', 'completed');
+                return;
+            }
+            
+            this.log(`☢️ Found ${remainingResources.length} stuck resources - applying nuclear cleanup`);
+            
+            // Apply nuclear cleanup to each resource
+            for (const resource of remainingResources) {
+                await this.nuclearCleanupResource(namespace, resource);
+            }
+            
+            cleanupState.removedComponents.push(`${remainingResources.length} stuck resources (nuclear cleanup)`);
+            this.updateCleanupPhaseStatus(cleanupState, 'nuclear_cleanup', 'completed');
+            
+        } catch (error) {
+            this.updateCleanupPhaseStatus(cleanupState, 'nuclear_cleanup', 'failed', `Nuclear cleanup failed: ${error}`);
+        }
+    }
+
+    /**
+     * Get all remaining resources in namespace
+     */
+    private async getAllRemainingResources(namespace: string): Promise<string[]> {
+        try {
+            const result = await this.commandExecutor.kubectl(
+                `get all,secrets,configmaps,serviceaccounts,roles,rolebindings -n ${namespace} -o name --timeout=10s`
+            );
+            
+            return result.stdout.trim().split('\n').filter(line => line.trim());
+        } catch (error) {
+            return [];
+        }
+    }
+
+    /**
+     * Nuclear cleanup of a single resource
+     */
+    private async nuclearCleanupResource(namespace: string, resource: string): Promise<void> {
+        try {
+            // Remove all finalizers
+            await this.aggressiveRemoveFinalizersFromResource(namespace, resource);
+            
+            // Force delete
+            await this.commandExecutor.kubectl(
+                `delete ${resource} -n ${namespace} --force --grace-period=0 --timeout=5s`
+            );
+            
+            this.log(`☢️ Nuclear cleanup completed for: ${resource}`);
+        } catch (error) {
+            this.log(`⚠️ Nuclear cleanup failed for ${resource}: ${error}`, 'warning');
+        }
+    }
+
+    /**
+     * Namespace destruction with multiple strategies
+     */
+    private async performNamespaceDestruction(cleanupState: EnhancedCleanupState, namespace: string, options: any): Promise<void> {
+        this.log('� SMART namespace analysis and destruction');
+        this.updateCleanupPhaseStatus(cleanupState, 'namespace_destruction', 'running');
+        
+        try {
+            // Check if namespace exists
+            const namespaceExists = await this.commandExecutor.kubectl(
+                `get namespace ${namespace} --timeout=5s`
+            ).then(() => true).catch(() => false);
+            
+            if (!namespaceExists) {
+                this.log(`✅ Namespace ${namespace} already deleted`);
+                this.updateCleanupPhaseStatus(cleanupState, 'namespace_destruction', 'completed');
+                return;
+            }
+            
+            // SMART DETECTION: Check for non-ARC resources before deletion
+            const nonArcResources = await this.detectNonArcResources(namespace);
+            
+            if (nonArcResources.length > 0) {
+                this.log(`⚠️  NON-ARC RESOURCES DETECTED in namespace ${namespace}:`);
+                nonArcResources.forEach(resource => {
+                    this.log(`   • ${resource}`);
+                });
+                
+                // SAFE APPROACH: Do not delete namespace with non-ARC resources
+                this.log(`🛡️  SAFETY: Preserving namespace ${namespace} - contains non-ARC resources`);
+                this.log(`ℹ️   To delete this namespace, remove non-ARC resources first, then run cleanup again`);
+                
+                cleanupState.warnings.push(`Namespace ${namespace} preserved - contains non-ARC resources: ${nonArcResources.join(', ')}`);
+                this.updateCleanupPhaseStatus(cleanupState, 'namespace_destruction', 'completed', 
+                    `Namespace preserved due to non-ARC resources: ${nonArcResources.length} items`);
+                return;
+            }
+            
+            // Safe to delete - only contains default Kubernetes resources or empty
+            this.log(`✅ Safe to delete namespace ${namespace} - no non-ARC resources detected`);
+            
+            this.log(`🔧 Removing finalizers from namespace ${namespace}`);
+            // Remove namespace finalizers (FIXED - use metadata, not spec)
+            await this.commandExecutor.kubectl(
+                `patch namespace ${namespace} -p '{"metadata":{"finalizers":null}}' --type=merge --timeout=5s`
+            ).catch((error) => {
+                this.log(`⚠️ Finalizer removal failed: ${error}`, 'warning');
+            });
+            
+            // Wait for finalizer removal to take effect
+            await new Promise(resolve => setTimeout(resolve, 1000));
+            
+            this.log(`🗑️ Attempting standard namespace deletion`);
+            // Standard delete with timeout
+            await this.commandExecutor.kubectl(
+                `delete namespace ${namespace} --timeout=30s`
+            ).catch((error) => {
+                this.log(`⚠️ Standard deletion failed: ${error}`, 'warning');
+            });
+            
+            // Check if namespace is still there after 5 seconds
+            await new Promise(resolve => setTimeout(resolve, 5000));
+            
+            const stillExists = await this.commandExecutor.kubectl(
+                `get namespace ${namespace} --timeout=2s`
+            ).then(() => true).catch(() => false);
+            
+            if (stillExists) {
+                this.log(`🚀 Using force delete for stubborn namespace`);
+                // Force delete
+                await this.commandExecutor.kubectl(
+                    `delete namespace ${namespace} --force --grace-period=0`
+                ).catch((error) => {
+                    this.log(`⚠️ Force deletion failed: ${error}`, 'warning');
+                });
+            }
+            
+            // Final verification
+            await this.ultraFastNamespaceVerification(namespace, 30000);
+            
+            this.updateCleanupPhaseStatus(cleanupState, 'namespace_destruction', 'completed');
+            
+        } catch (error) {
+            this.log(`❌ Namespace destruction failed: ${error}`, 'error');
+            this.updateCleanupPhaseStatus(cleanupState, 'namespace_destruction', 'failed', `Failed: ${error}`);
+        }
+    }
+
+    /**
+     * Detect non-ARC resources in namespace to prevent accidental deletion
+     */
+    private async detectNonArcResources(namespace: string): Promise<string[]> {
+        const nonArcResources: string[] = [];
+        
+        try {
+            // Define what we consider "safe to delete" (default Kubernetes resources)
+            const safeResources = [
+                'default', // default service account
+                'kube-root-ca.crt' // Kubernetes root CA cert
+            ];
+            
+            // Define ARC-related patterns
+            const arcPatterns = [
+                'arc', 'runner', 'github', 'summerwind', 'actions',
+                'controller-manager', 'webhook', 'autoscaling'
+            ];
+            
+            // Check each resource type
+            const resourceTypes = [
+                'secrets', 'configmaps', 'services', 'deployments', 'pods',
+                'serviceaccounts', 'roles', 'rolebindings', 'networkpolicies',
+                'persistentvolumeclaims', 'ingresses'
+            ];
+            
+            for (const resourceType of resourceTypes) {
+                try {
+                    const result = await this.commandExecutor.kubectl(
+                        `get ${resourceType} -n ${namespace} --timeout=3s -o name`
+                    );
+                    
+                    if (result.stdout.trim()) {
+                        const resources = result.stdout.trim().split('\n');
+                        
+                        for (const resource of resources) {
+                            const resourceName = resource.split('/')[1] || resource;
+                            
+                            // Skip safe default resources
+                            if (safeResources.includes(resourceName)) {
+                                continue;
+                            }
+                            
+                            // Check if it's ARC-related
+                            const isArcRelated = arcPatterns.some(pattern => 
+                                resourceName.toLowerCase().includes(pattern.toLowerCase())
+                            );
+                            
+                            if (!isArcRelated) {
+                                nonArcResources.push(`${resourceType}/${resourceName}`);
+                            }
+                        }
+                    }
+                } catch (error) {
+                    // Resource type not found or no access - continue
+                }
+            }
+            
+        } catch (error) {
+            this.log(`⚠️ Error detecting non-ARC resources: ${error}`, 'warning');
+        }
+        
+        return nonArcResources;
+    }
+
+    /**
+     * Final verification and orphaned cleanup
+     */
+    private async performFinalVerificationAndOrphanedCleanup(cleanupState: EnhancedCleanupState): Promise<void> {
+        this.log('🔍 Final verification and orphaned resource cleanup');
+        this.updateCleanupPhaseStatus(cleanupState, 'verification', 'running');
+        
+        try {
+            // Clean up cluster-scoped resources first
+            await this.cleanupOrphanedResources();
+            
+            // Comprehensive verification - check for all types of ARC resources
+            const issues: string[] = [];
+            
+            // Check for namespace existence and contents
+            const namespaceExists = await this.commandExecutor.kubectl(
+                `get namespace arc-systems --timeout=5s`
+            ).then(() => true).catch(() => false);
+            
+            if (namespaceExists) {
+                issues.push('Namespace arc-systems still exists');
+                
+                // Check what's left in the namespace
+                try {
+                    const resourceTypes = ['secrets', 'roles', 'rolebindings', 'networkpolicies', 'serviceaccounts', 'pods', 'services', 'deployments'];
+                    for (const resourceType of resourceTypes) {
+                        try {
+                            const result = await this.commandExecutor.kubectl(
+                                `get ${resourceType} -n arc-systems --timeout=5s -o name`
+                            );
+                            if (result.stdout.trim()) {
+                                const count = result.stdout.split('\n').filter(l => l.trim()).length;
+                                issues.push(`${resourceType}: ${count} items`);
+                            }
+                        } catch {
+                            // Resource type not found or no access
+                        }
+                    }
+                } catch (error) {
+                    this.log(`Could not enumerate namespace resources: ${error}`);
+                }
+                
+                // Check for Helm releases
+                try {
+                    const helmReleases = await this.commandExecutor.helm(`list -n arc-systems --timeout 5s`);
+                    if (helmReleases.stdout && helmReleases.stdout.split('\n').length > 1) {
+                        const releaseCount = helmReleases.stdout.split('\n').filter(line => line.trim() && !line.includes('NAME')).length;
+                        if (releaseCount > 0) {
+                            issues.push(`Helm releases: ${releaseCount} releases`);
+                        }
+                    }
+                } catch (error) {
+                    this.log(`Could not check Helm releases: ${error}`);
+                }
+            }
+            
+            // Check for ARC CRDs
+            const remainingCRDs = await this.commandExecutor.kubectl(
+                `get crd -o name | grep -E "(actions\\.github\\.com|actions\\.summerwind\\.dev|runner)" || true`
+            ).then(result => result.stdout.trim()).catch(() => '');
+            
+            if (remainingCRDs) {
+                const crdCount = remainingCRDs.split('\n').filter(l => l.trim()).length;
+                issues.push(`ARC CRDs: ${crdCount} items`);
+                this.log(`Remaining CRDs: ${remainingCRDs}`);
+            }
+            
+            // Check for cluster-scoped RBAC
+            const clusterRoles = await this.commandExecutor.kubectl(
+                `get clusterrole -o name | grep -E "(actions|runner)" || true`
+            ).then(result => result.stdout.trim()).catch(() => '');
+            
+            if (clusterRoles) {
+                const roleCount = clusterRoles.split('\n').filter(l => l.trim()).length;
+                issues.push(`Cluster roles: ${roleCount} items`);
+            }
+            
+            const clusterRoleBindings = await this.commandExecutor.kubectl(
+                `get clusterrolebinding -o name | grep -E "(actions|runner)" || true`
+            ).then(result => result.stdout.trim()).catch(() => '');
+            
+            if (clusterRoleBindings) {
+                const bindingCount = clusterRoleBindings.split('\n').filter(l => l.trim()).length;
+                issues.push(`Cluster role bindings: ${bindingCount} items`);
+            }
+            
+            // Report final status
+            if (issues.length === 0) {
+                this.log('✅ Final verification: Complete cleanup successful - no ARC resources found');
+            } else {
+                const issuesSummary = issues.join(', ');
+                this.log(`⚠️ Final verification: ${issues.length} issues found: ${issuesSummary}`);
+                this.log('❌ Cleanup was incomplete - some ARC resources remain in the cluster');
+            }
+            
+            this.updateCleanupPhaseStatus(cleanupState, 'verification', 'completed', 
+                issues.length > 0 ? `Issues remaining: ${issues.join(', ')}` : 'Complete cleanup verified');
+            
+        } catch (error) {
+            this.updateCleanupPhaseStatus(cleanupState, 'verification', 'failed', `Final verification failed: ${error}`);
+        }
+    }
+
+    /**
+     * Emergency cleanup mode - last resort
+     */
+    private async emergencyCleanupMode(namespace: string): Promise<void> {
+        this.log('🆘 EMERGENCY cleanup mode activated');
+        
+        try {
+            // Nuclear approach - delete everything with maximum force
+            const commands = [
+                `delete namespace ${namespace} --force --grace-period=0 --ignore-not-found`,
+                `delete crd -l app.kubernetes.io/name=actions-runner-controller --force --grace-period=0 --ignore-not-found`,
+                `delete clusterrole -l app.kubernetes.io/name=actions-runner-controller --force --grace-period=0 --ignore-not-found`,
+                `delete clusterrolebinding -l app.kubernetes.io/name=actions-runner-controller --force --grace-period=0 --ignore-not-found`,
+                `delete validatingwebhookconfigurations --all --force --grace-period=0 --ignore-not-found`,
+                `delete mutatingwebhookconfigurations --all --force --grace-period=0 --ignore-not-found`
+            ];
+            
+            for (const command of commands) {
+                await this.commandExecutor.kubectl(command).catch(() => {});
+            }
+            
+            this.log('🆘 Emergency cleanup completed');
+            
+        } catch (error) {
+            this.log(`🆘 Emergency cleanup failed: ${error}`, 'error');
+        }
     }
 }

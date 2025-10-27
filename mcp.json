@@ -13,7 +13,7 @@
                 "-e", "GITHUB_ORG=${GITHUB_ORG:-}",
                 "-e", "LOG_LEVEL=${LOG_LEVEL:-info}",
                 "-e", "ENABLE_METRICS=${ENABLE_METRICS:-true}",
-                "arc-config-mcp:local-dev-1760295491"
+                "arc-config-mcp:local-dev-1761605845"
             ],
             "env": {
                 "GITHUB_TOKEN": "${GITHUB_TOKEN}",

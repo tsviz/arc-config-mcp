@@ -1,14 +1,6 @@
-# ARC Config MCP ## 🎯 Key Features
+# ARC Config MCP Server
 
-- 🤖 **Natural Language Operations**: "Install ARC", "Scale runners", "Check status"
-- 🚀 **Automated Installation & Configuration**: Zero-config setup with enterprise security
-- 🔧 **Comprehensive Troubleshooting**: Auto-detection and resolution of common issues
-- 📊 **Intelligent Monitoring & Health Checks**: Real-time status with visual diagrams
-- 🛡️ **Built-in Security Policies & Compliance**: Enterprise-grade security out of the box
-- 💰 **Cost Optimization & Resource Management**: AI-driven scaling and resource optimization
-- 🛠️ **Advanced Troubleshooting & Self-healing**: Automatic recovery from common failures
-- 🧹 **Intelligent Cleanup & Uninstall**: Safe removal with comprehensive validation
-- 📱 **Real-time Progress Updates**: Live status updates directly in VS Code chat> **🚀 AI-Powered GitHub Actions Runner Controller Management**
+> **🚀 AI-Powered GitHub Actions Runner Controller Management**
 > 
 > A comprehensive TypeScript MCP (Model Context Protocol) server that transforms complex ARC operations into conversational AI interactions. Deploy, monitor, and manage GitHub Actions runners with natural language commands.
 
@@ -23,14 +15,31 @@
 
 ARC Config MCP Server is an enterprise-grade automation tool that bridges the gap between complex Kubernetes-based GitHub Actions runner management and intuitive AI-powered operations. Instead of memorizing kubectl commands and YAML configurations, simply tell the AI what you want to accomplish.
 
-### 🌟 Key Capabilities
+**🆕 NOW SUPPORTS ARC 0.13.0** with advanced container modes, dual-stack networking, Azure Key Vault integration, and OpenShift support!
 
-- **🤖 Natural Language Operations**: Transform complex ARC tasks into simple conversations
-- **⚡ Intelligent Installation**: Zero-configuration ARC deployment with smart defaults
-- **📊 Real-time Monitoring**: Live status dashboards and proactive health monitoring
-- **🔒 Enterprise Security**: Built-in policy validation and compliance enforcement
-- **💰 Cost Intelligence**: Automatic scaling and resource optimization
-- **🛠️ Self-Healing**: Automated troubleshooting and remediation
+## 🌟 Key Features
+
+### 🤖 **Natural Language Operations**
+Transform complex ARC tasks into simple conversations:
+- *"Install ARC with container mode optimization"*
+- *"Scale runners to handle 50 concurrent jobs"* 
+- *"Set up dual-stack networking for IPv6 support"*
+- *"Configure Azure Key Vault for secure secret management"*
+
+### ⚡ **ARC 0.13.0 Enhancements**
+- **🔥 Container Mode**: `kubernetes-novolume` eliminates ReadWriteMany storage requirements
+- **🌐 Dual-Stack Networking**: IPv4/IPv6 support with automatic fallback
+- **🔐 Azure Key Vault Integration**: Secure secret management without workflow exposure
+- **🏢 OpenShift Support**: Enterprise-grade deployment with Security Context Constraints
+- **📊 Enhanced Metrics**: New `workflow_name` and `target` labels for better monitoring
+
+### 🚀 **Enterprise-Ready Capabilities**
+- **Intelligent Installation**: Zero-configuration ARC deployment with smart defaults
+- **Real-time Monitoring**: Live status dashboards and proactive health monitoring
+- **Enterprise Security**: Built-in policy validation and compliance enforcement
+- **Cost Intelligence**: Automatic scaling and resource optimization
+- **Self-Healing**: Automated troubleshooting and remediation
+- **Platform Support**: Kubernetes, OpenShift, AKS, EKS, GKE compatibility
 
 ## 🚀 Quick Start
 
@@ -117,12 +126,50 @@ This version includes comprehensive troubleshooting capabilities based on real-w
 
 Transform complex ARC operations into simple conversations:
 
+### 🔥 ARC 0.13.0 Enhanced Examples
+
+```text
+🧑 "Install ARC with the new container mode to eliminate storage issues"
+🤖 ✅ Installing ARC controller with kubernetes-novolume container mode...
+   📦 Helm chart: actions-runner-controller v0.13.0
+   🔥 Container mode: kubernetes-novolume (no RWX storage needed!)
+   📊 Enhanced metrics: workflow_name and target labels enabled
+   🔒 Security: JIT token secure mode enabled
+   ⏱️ Installation completed in 52 seconds
+
+🧑 "Set up dual-stack networking for IPv6 support"
+🤖 ✅ Configuring dual-stack networking for ARC runners...
+   🌐 IPv4/IPv6: Dual-stack support enabled
+   🔄 Fallback: IPv4 only if IPv6 unavailable
+   🛡️ Network policies: Updated for dual-stack
+   📝 DNS config: Optimized for both protocols
+   ⏱️ Network configuration completed in 30 seconds
+
+🧑 "Configure Azure Key Vault integration for secure secrets"
+🤖 ✅ Setting up Azure Key Vault CSI integration...
+   🔐 Key Vault: Connected to production vault
+   🎫 Workload Identity: Configured for secure access
+   🚫 Workflow context: Secrets isolated from workflows
+   📋 Secret Provider Class: Created and validated
+   ⏱️ Azure Key Vault integration completed in 75 seconds
+
+🧑 "Deploy runners optimized for OpenShift with enterprise security"
+🤖 ✅ Deploying OpenShift-optimized ARC runners...
+   🏢 Platform: OpenShift Security Context Constraints applied
+   👤 Security: Non-root user with restricted capabilities
+   🏷️ SELinux: Multi-Category Security labels configured
+   🔒 Pod Security: Restricted standard enforced
+   ⏱️ OpenShift deployment completed in 95 seconds
+```
+
+### 💡 Traditional Examples
+
 ```text
 🧑 "Install ARC in my dev cluster with basic security settings"
 🤖 ✅ Installing ARC controller with development security profile...
-   📦 Helm chart: actions-runner-controller v0.9.1
+   📦 Helm chart: actions-runner-controller v0.13.0
    🔒 Security: Basic validation enabled
-   📍 Namespace: arc-system
+   📍 Namespace: arc-systems
    ⏱️ Installation completed in 45 seconds
 
 🧑 "Scale my repo runners to handle the evening build rush"
@@ -229,7 +276,7 @@ GITHUB_REPO=your-repository
 
 # Kubernetes Configuration  
 KUBECONFIG_PATH=/path/to/kubeconfig
-ARC_NAMESPACE=arc-system
+ARC_NAMESPACE=arc-systems
 RUNNER_NAMESPACE=arc-runners
 
 # MCP Server Configuration
@@ -326,7 +373,100 @@ services:
 
 ## 🎨 Usage Patterns & Examples
 
-### 1. First-Time ARC Installation
+### 🔥 ARC 0.13.0 Advanced Patterns
+
+#### 1. Container Mode Optimization
+```text
+🧑 "Upgrade my existing ARC to use the new container mode"
+
+🤖 I'll migrate you to kubernetes-novolume container mode:
+
+   1️⃣ Analyzing current deployment...
+      📊 Current: kubernetes mode with PVC storage
+      🔍 RWX storage usage: 15 GB across 8 runners
+      💰 Storage cost: $45/month
+
+   2️⃣ Planning migration to kubernetes-novolume...
+      ⚡ Benefits: No RWX storage dependency
+      📈 Performance: ~30% faster job startup
+      💰 Cost savings: $45/month storage eliminated
+      🔧 Lifecycle hooks: preStart/preStop configured
+
+   3️⃣ Executing migration...
+      🚀 Creating new runner deployment with container mode
+      📦 Adding workspace lifecycle hooks
+      🔄 Rolling out updated configuration
+      🧹 Cleaning up legacy PVC resources
+
+   ✅ Migration complete!
+      🎯 Container mode: kubernetes-novolume active
+      ⚡ Job startup time: Reduced by 28 seconds
+      💾 Ephemeral storage: 10Gi per runner
+```
+
+#### 2. Dual-Stack Networking Setup
+```text
+🧑 "Configure my runners for IPv6 support"
+
+🤖 Setting up dual-stack networking for future-ready infrastructure:
+
+   1️⃣ Evaluating network requirements...
+      🌐 Current: IPv4 only
+      📋 Target: IPv4/IPv6 dual-stack
+      🔍 GitHub API: IPv6 endpoints available
+
+   2️⃣ Configuring dual-stack support...
+      🔧 DNS policy: ClusterFirst with IPv6
+      🛡️ Network policies: Updated for dual protocols  
+      🏷️ Service configuration: Dual-stack enabled
+      📡 Ingress: IPv4/IPv6 load balancing
+
+   3️⃣ Testing connectivity...
+      ✅ IPv4 GitHub API: Connected
+      ✅ IPv6 GitHub API: Connected  
+      🔄 Fallback mechanism: IPv4 verified
+      📊 Latency: IPv6 -12ms vs IPv4
+
+   ✅ Dual-stack networking active!
+      🌐 Protocols: IPv4 + IPv6 with automatic fallback
+      🚀 Performance: Optimized routing selection
+      🛡️ Security: Enhanced network isolation
+```
+
+#### 3. Azure Key Vault Integration
+```text
+🧑 "Secure my secrets using Azure Key Vault instead of Kubernetes secrets"
+
+🤖 Implementing Azure Key Vault CSI integration:
+
+   1️⃣ Validating Azure setup...
+      🔐 Key Vault: arc-secrets-prod detected
+      👤 Workload Identity: Configured for AKS
+      🎫 Service Principal: Permissions verified
+      📦 CSI Driver: secrets-store-csi-driver v1.4.1
+
+   2️⃣ Creating SecretProviderClass...
+      🏷️ Name: arc-azure-keyvault
+      🔑 Secrets: github-token, webhook-secret
+      🛡️ Access: Workload Identity federation
+      📍 Mount path: /mnt/secrets
+
+   3️⃣ Updating runner deployment...
+      📦 Volume: CSI secrets-store driver
+      🔒 Security: No secrets in workflow context
+      🔄 Rotation: Automatic on key vault update
+      📊 Monitoring: Secret access auditing
+
+   ✅ Azure Key Vault integration complete!
+      🔐 Secrets: Managed externally in Azure
+      🚫 Context isolation: Secrets hidden from workflows
+      🔄 Auto-rotation: 90-day lifecycle
+      📋 Audit trail: All access logged
+```
+
+### 💡 Traditional Deployment Patterns
+
+#### 1. First-Time ARC Installation
 ```text
 🧑 "I need to set up GitHub Actions runners in my new cluster"
 
@@ -340,7 +480,7 @@ services:
    2️⃣ Installing ARC controller...
       📦 Adding Actions Runner Controller Helm repository
       ⚙️ Configuring with security defaults
-      🚀 Deploying to namespace: arc-system
+      🚀 Deploying to namespace: arc-systems
 
    3️⃣ Setting up runner infrastructure...
       👥 Creating runner group: default-runners
@@ -715,7 +855,7 @@ interface MCPToolCall {
   params: {
     name: "arc_install_controller";
     arguments: {
-      namespace: "arc-system";
+      namespace: "arc-systems";
       security_profile: "standard";
       auto_scaling: true;
     };

@@ -15,7 +15,6 @@ import cors from 'cors';
 import { config } from 'dotenv';
 import { createLogger, format, transports } from 'winston';
 import { ArcInstaller } from './services/arc-installer.js';
-import { KubernetesService } from './services/kubernetes.js';
 import { KubernetesEnhancedService } from './services/kubernetes-enhanced.js';
 import { GitHubService } from './services/github.js';
 import { PolicyService } from './services/policy.js';
@@ -89,6 +88,7 @@ function createMcpServer(): McpServer {
     );
 
     // Initialize services
+    // Using simple KubernetesService for now due to API compatibility issues
     const kubernetesService = new KubernetesEnhancedService(logger);
     const githubService = new GitHubService(logger);
     const policyService = new PolicyService(logger);

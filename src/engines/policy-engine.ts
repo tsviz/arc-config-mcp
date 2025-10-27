@@ -9,7 +9,7 @@ export interface ArcPolicyRule {
     name: string;
     description: string;
     severity: 'low' | 'medium' | 'high' | 'critical';
-    category: 'security' | 'compliance' | 'performance' | 'cost' | 'operations';
+    category: 'security' | 'compliance' | 'performance' | 'cost' | 'operations' | 'networking';
     enabled: boolean;
     scope: 'cluster' | 'namespace' | 'runnerscaleset' | 'runner' | 'resource';
     conditions: PolicyCondition[];
@@ -19,13 +19,13 @@ export interface ArcPolicyRule {
 
 export interface PolicyCondition {
     field: string;
-    operator: 'equals' | 'not_equals' | 'contains' | 'not_contains' | 'greater_than' | 'less_than' | 'regex_match' | 'exists' | 'not_exists';
+    operator: 'equals' | 'not_equals' | 'contains' | 'not_contains' | 'greater_than' | 'less_than' | 'regex_match' | 'exists' | 'not_exists' | 'in' | 'not_in';
     value: any;
     description?: string;
 }
 
 export interface PolicyAction {
-    type: 'deny' | 'warn' | 'modify' | 'audit' | 'notify';
+    type: 'deny' | 'warn' | 'modify' | 'audit' | 'notify' | 'info';
     message: string;
     autoFix?: boolean;
     fixAction?: string;
@@ -400,6 +400,185 @@ export class ArcPolicyEngine {
                     }
                 ]
             },
+
+            // ARC 0.13.0 New Features Policies
+            {
+                id: 'arc-013-001',
+                name: 'Container Mode Configuration',
+                description: 'ARC 0.13.0: Validate container mode configuration for storage optimization',
+                severity: 'medium',
+                category: 'performance',
+                enabled: true,
+                scope: 'runnerscaleset',
+                conditions: [
+                    {
+                        field: 'spec.template.spec.containerMode',
+                        operator: 'in',
+                        value: ['kubernetes', 'kubernetes-novolume'],
+                        description: 'Container mode must be kubernetes or kubernetes-novolume'
+                    }
+                ],
+                actions: [
+                    {
+                        type: 'warn',
+                        message: 'ARC 0.13.0: Consider using kubernetes-novolume mode for better performance and eliminating RWX storage requirements.',
+                        autoFix: true,
+                        fixAction: 'set_container_mode_novolume'
+                    }
+                ]
+            },
+            {
+                id: 'arc-013-002',
+                name: 'Enhanced Metrics Labels',
+                description: 'ARC 0.13.0: Require enhanced metrics labels for better observability',
+                severity: 'low',
+                category: 'operations',
+                enabled: true,
+                scope: 'runnerscaleset',
+                conditions: [
+                    {
+                        field: 'metadata.labels["actions.github.com/workflow-name"]',
+                        operator: 'exists',
+                        value: true,
+                        description: 'workflow-name label enhances metrics granularity in 0.13.0'
+                    },
+                    {
+                        field: 'metadata.labels["actions.github.com/target"]',
+                        operator: 'exists',
+                        value: true,
+                        description: 'target label improves monitoring and alerting in 0.13.0'
+                    }
+                ],
+                actions: [
+                    {
+                        type: 'warn',
+                        message: 'ARC 0.13.0: Add workflow_name and target labels for enhanced metrics. job_workflow_ref will be deprecated in 0.14.0.',
+                        autoFix: true,
+                        fixAction: 'add_enhanced_metrics_labels'
+                    }
+                ]
+            },
+            {
+                id: 'arc-013-003',
+                name: 'JIT Token Security',
+                description: 'ARC 0.13.0: Ensure JIT tokens are not stored in ephemeral runner status',
+                severity: 'high',
+                category: 'security',
+                enabled: true,
+                scope: 'runnerscaleset',
+                conditions: [
+                    {
+                        field: 'spec.template.spec.env[*].name',
+                        operator: 'not_contains',
+                        value: 'RUNNER_JIT_CONFIG',
+                        description: 'JIT tokens should not be exposed in runner status'
+                    }
+                ],
+                actions: [
+                    {
+                        type: 'warn',
+                        message: 'ARC 0.13.0: JIT tokens are now securely managed and no longer stored in ephemeral runner status for enhanced security.',
+                        autoFix: true,
+                        fixAction: 'remove_jit_token_exposure'
+                    }
+                ]
+            },
+            {
+                id: 'arc-013-004',
+                name: 'Dual-Stack Networking Support',
+                description: 'ARC 0.13.0: Validate dual-stack networking configuration',
+                severity: 'low',
+                category: 'networking',
+                enabled: true,
+                scope: 'runnerscaleset',
+                conditions: [
+                    {
+                        field: 'spec.template.spec.dnsPolicy',
+                        operator: 'equals',
+                        value: 'ClusterFirst',
+                        description: 'DNS policy should support dual-stack networking'
+                    }
+                ],
+                actions: [
+                    {
+                        type: 'warn',
+                        message: 'ARC 0.13.0: Configure DNS policy for dual-stack IPv4/IPv6 support when available.',
+                        autoFix: true,
+                        fixAction: 'configure_dualstack_dns'
+                    }
+                ]
+            },
+            {
+                id: 'arc-013-005',
+                name: 'Azure Key Vault Integration',
+                description: 'ARC 0.13.0: Validate Azure Key Vault secret management integration',
+                severity: 'medium',
+                category: 'security',
+                enabled: true,
+                scope: 'runnerscaleset',
+                conditions: [
+                    {
+                        field: 'spec.template.spec.volumes[*].csi.driver',
+                        operator: 'contains',
+                        value: 'secrets-store.csi.k8s.io',
+                        description: 'Azure Key Vault CSI driver integration for secure secret management'
+                    }
+                ],
+                actions: [
+                    {
+                        type: 'info',
+                        message: 'ARC 0.13.0: Consider Azure Key Vault integration for enhanced secret management without exposing secrets in workflow context.'
+                    }
+                ]
+            },
+            {
+                id: 'arc-013-006',
+                name: 'OpenShift Compatibility',
+                description: 'ARC 0.13.0: Validate OpenShift-specific security context constraints',
+                severity: 'medium',
+                category: 'security',
+                enabled: true,
+                scope: 'runnerscaleset',
+                conditions: [
+                    {
+                        field: 'spec.template.spec.securityContext.runAsUser',
+                        operator: 'greater_than',
+                        value: 999,
+                        description: 'OpenShift requires non-root user ID > 999'
+                    }
+                ],
+                actions: [
+                    {
+                        type: 'warn',
+                        message: 'ARC 0.13.0: Ensure security context is compatible with OpenShift Security Context Constraints.',
+                        autoFix: true,
+                        fixAction: 'configure_openshift_scc'
+                    }
+                ]
+            },
+            {
+                id: 'arc-013-007',
+                name: 'Container Lifecycle Hooks',
+                description: 'ARC 0.13.0: Validate container lifecycle hooks for kubernetes-novolume mode',
+                severity: 'low',
+                category: 'performance',
+                enabled: true,
+                scope: 'runnerscaleset',
+                conditions: [
+                    {
+                        field: 'spec.template.spec.containers[*].lifecycle.preStart',
+                        operator: 'exists',
+                        value: true,
+                        description: 'PreStart hooks recommended for kubernetes-novolume mode'
+                    }
+                ],
+                actions: [
+                    {
+                        type: 'info',
+                        message: 'ARC 0.13.0: Container lifecycle hooks enable workspace restoration/export in kubernetes-novolume mode for better performance.'
+                    }
+                ]
+            },
             {
                 id: 'arc-ops-002',
                 name: 'Valid Runner Image',
@@ -545,13 +724,13 @@ export class ArcPolicyEngine {
      */
     async evaluateRunnerScaleSet(namespace: string, runnerScaleSetName: string): Promise<PolicyEvaluationResult> {
         try {
-            const response = await this.customApi.getNamespacedCustomObject(
-                'actions.sumologic.com',
-                'v1alpha1', 
+            const response = await this.customApi.getNamespacedCustomObject({
+                group: 'actions.sumologic.com',
+                version: 'v1alpha1', 
                 namespace,
-                'runnerscalesets',
-                runnerScaleSetName
-            );
+                plural: 'runnerscalesets',
+                name: runnerScaleSetName
+            });
 
             return this.evaluateResource((response as any).body || response, 'runnerscaleset');
         } catch (error) {
@@ -791,19 +970,19 @@ export class ArcPolicyEngine {
             let runnerScaleSets: any[] = [];
 
             if (namespace) {
-                const response = await this.customApi.listNamespacedCustomObject(
-                    'actions.sumologic.com',
-                    'v1alpha1',
+                const response = await this.customApi.listNamespacedCustomObject({
+                    group: 'actions.sumologic.com',
+                    version: 'v1alpha1',
                     namespace,
-                    'runnerscalesets'
-                );
+                    plural: 'runnerscalesets'
+                });
                 runnerScaleSets = ((response as any).body || response)?.items || [];
             } else {
-                const response = await this.customApi.listClusterCustomObject(
-                    'actions.sumologic.com',
-                    'v1alpha1',
-                    'runnerscalesets'
-                );
+                const response = await this.customApi.listClusterCustomObject({
+                    group: 'actions.sumologic.com',
+                    version: 'v1alpha1',
+                    plural: 'runnerscalesets'
+                });
                 runnerScaleSets = ((response as any).body || response)?.items || [];
             }
 

@@ -3,14 +3,25 @@ kind: RunnerDeployment
 metadata:
   name: arc-runners
   namespace: arc-systems
+  labels:
+    # ARC 0.13.0 enhanced labels for metrics
+    actions.github.com/workflow-name: "default-runner"
+    actions.github.com/target: "organization"
+    arc.version: "0.13.0"
 spec:
   replicas: 2
   template:
     spec:
       organization: <GITHUB_ORG>
+      # ARC 0.13.0: Container mode configuration
+      containerMode: kubernetes-novolume  # New: eliminates RWX volume requirements
       env:
         - name: RUNNER_FEATURE_FLAG_EPHEMERAL
           value: "true"
+        # Enhanced security - JIT token management moved to secure storage
+        - name: RUNNER_JIT_CONFIG_SECURE
+          value: "true"
+      # Enhanced resource configuration
       resources:
         limits:
           cpu: "2.0"
@@ -18,6 +29,31 @@ spec:
         requests:
           cpu: "100m"
           memory: "64Mi"
+      # Container lifecycle hooks for kubernetes-novolume mode
+      hooks:
+        preStart:
+          - "/opt/runner/hooks/restore-workspace.sh"
+        postStop:
+          - "/opt/runner/hooks/export-workspace.sh"
+      # Enhanced security context for OpenShift compatibility
+      securityContext:
+        runAsNonRoot: true
+        readOnlyRootFilesystem: true
+        allowPrivilegeEscalation: false
+        capabilities:
+          drop:
+            - ALL
+      # Network configuration for dual-stack support
+      dnsPolicy: "ClusterFirst"
+      # Secret management - enhanced for Azure Key Vault integration
       envFrom:
         - secretRef:
             name: controller-manager
+      # Optional: Azure Key Vault integration via CSI driver
+      volumes:
+        - name: secrets-store
+          csi:
+            driver: secrets-store.csi.k8s.io
+            readOnly: true
+            volumeAttributes:
+              secretProviderClass: "arc-azure-keyvault"

@@ -1,0 +1,148 @@
+# ARC 0.13.0: Dual-stack networking configuration template
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: arc-dualstack-config
+  namespace: arc-systems
+  labels:
+    arc.version: "0.13.0"
+    arc.feature: "dual-stack-networking"
+data:
+  network-config.yaml: |
+    # Dual-stack networking configuration for ARC 0.13.0
+    networking:
+      dualStack:
+        enabled: true
+        ipv4:
+          enabled: true
+          cidr: "10.244.0.0/16"
+          primary: true
+        ipv6:
+          enabled: true
+          cidr: "fd00:10:244::/48"
+          fallback: true
+        
+      # Service configuration for dual-stack
+      services:
+        clusterIP:
+          ipFamilyPolicy: "PreferDualStack"
+          ipFamilies: ["IPv4", "IPv6"]
+        
+      # Ingress configuration
+      ingress:
+        annotations:
+          nginx.ingress.kubernetes.io/enable-ipv6: "true"
+          nginx.ingress.kubernetes.io/ipv6-addresses: "2001:db8::1"
+      
+      # Network policies for dual-stack
+      networkPolicies:
+        enabled: true
+        rules:
+          - name: "allow-ipv4-github"
+            spec:
+              podSelector:
+                matchLabels:
+                  app: arc-runners
+              policyTypes:
+                - Egress
+              egress:
+                - to: []
+                  ports:
+                    - protocol: TCP
+                      port: 443
+                  # GitHub IP ranges (IPv4)
+                - to:
+                    - ipBlock:
+                        cidr: "140.82.112.0/20"
+                - to:
+                    - ipBlock:
+                        cidr: "185.199.108.0/22"
+          
+          - name: "allow-ipv6-github"
+            spec:
+              podSelector:
+                matchLabels:
+                  app: arc-runners
+              policyTypes:
+                - Egress
+              egress:
+                - to: []
+                  ports:
+                    - protocol: TCP
+                      port: 443
+                  # GitHub IPv6 ranges (example - update with actual ranges)
+                - to:
+                    - ipBlock:
+                        cidr: "2001:db8::/32"
+
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: arc-dualstack-policy
+  namespace: arc-systems
+  labels:
+    arc.version: "0.13.0"
+    arc.feature: "dual-stack-networking"
+spec:
+  podSelector:
+    matchLabels:
+      app: arc-runners
+  policyTypes:
+    - Ingress
+    - Egress
+  
+  # Allow ingress from GitHub webhooks (dual-stack)
+  ingress:
+    - from: []
+      ports:
+        - protocol: TCP
+          port: 8080
+    
+  # Allow egress to GitHub APIs and container registries (dual-stack)
+  egress:
+    # GitHub API access
+    - to: []
+      ports:
+        - protocol: TCP
+          port: 443
+        - protocol: TCP
+          port: 80
+    
+    # DNS resolution (dual-stack)
+    - to: []
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+    
+    # Container registry access
+    - to: []
+      ports:
+        - protocol: TCP
+          port: 5000
+
+---
+# Service for dual-stack access
+apiVersion: v1
+kind: Service
+metadata:
+  name: arc-runners-dualstack
+  namespace: arc-systems
+  labels:
+    arc.version: "0.13.0"
+    arc.feature: "dual-stack-networking"
+spec:
+  type: ClusterIP
+  ipFamilyPolicy: PreferDualStack
+  ipFamilies:
+    - IPv4
+    - IPv6
+  selector:
+    app: arc-runners
+  ports:
+    - name: webhook
+      port: 8080
+      targetPort: 8080
+      protocol: TCP

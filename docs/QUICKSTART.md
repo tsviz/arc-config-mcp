@@ -72,18 +72,18 @@ Before starting, ensure you have:
       ✅ Sufficient resources available
 
    2️⃣ Installing ARC controller...
-      📦 Downloading actions-runner-controller v0.9.1
-      ⚙️ Configuring with development security profile
-      🚀 Deploying to namespace: arc-system
+      📦 Downloading official GitHub ARC v0.13.0
+      ⚙️ Configuring with official OCI charts
+      🚀 Deploying to namespace: arc-systems
 
-   3️⃣ Setting up basic runners...
-      👥 Creating default runner set
-      🔗 Registering with GitHub repository
-      📊 Enabling basic monitoring
+   3️⃣ Setting up runner deployment...
+      👥 Creating autoscaling runner sets
+      🔗 Registering with GitHub organization  
+      📊 Enabling enhanced metrics with workflow labels
 
    ✅ Installation complete!
-      🌐 ARC dashboard: kubectl port-forward -n arc-system svc/controller 8080:8080
-      📚 Next steps: Scale runners or configure advanced features
+      🌐 ARC dashboard: kubectl port-forward -n arc-systems svc/arc-gha-rs-controller 8080:8080
+      📚 Next steps: Deploy runners or configure advanced ARC v0.13.0 features
 ```
 
 ### Scenario 2: Health Check & Status
@@ -94,9 +94,9 @@ Before starting, ensure you have:
 🤖 Running comprehensive ARC health check...
 
    📊 Controller Status:
-      ✅ ARC Controller: Running (v0.9.1)
+      ✅ ARC Controller: Running (v0.13.0)
       ✅ Webhook Server: Healthy
-      ✅ Metrics Server: Collecting data
+      ✅ Metrics Server: Collecting enhanced workflow data
 
    🏃 Runner Status:
       • Active runners: 3/5
@@ -109,8 +109,8 @@ Before starting, ensure you have:
       • Health check: All systems green ✅
 
    💡 Recommendations:
-      • Consider auto-scaling for variable loads
-      • Update to latest ARC version (v0.9.2 available)
+      • Consider auto-scaling for variable loads  
+      • ARC v0.13.0 features available (container modes, dual-stack networking)
 ```
 
 ### Scenario 3: Scale Runners for High Load
@@ -155,7 +155,7 @@ GITHUB_TOKEN=ghp_your_token_here
 GITHUB_ORG=your-organization          # For org-level runners
 GITHUB_REPO=your-repository           # For repo-specific runners
 KUBECONFIG_PATH=/path/to/kubeconfig   # If not using default location
-ARC_NAMESPACE=arc-system              # ARC controller namespace
+ARC_NAMESPACE=arc-systems              # ARC controller namespace
 RUNNER_NAMESPACE=arc-runners          # Runner pods namespace
 
 # MCP Server Settings
@@ -280,7 +280,7 @@ Try these commands with your MCP client:
 ```bash
 # Check kubectl configuration
 kubectl config current-context
-kubectl auth can-i create pods --namespace arc-system
+kubectl auth can-i create pods --namespace arc-systems
 
 # Solution: Fix KUBECONFIG or RBAC permissions
 export KUBECONFIG=/path/to/correct/kubeconfig
@@ -348,8 +348,8 @@ kubectl get all -n arc-runners
 # Check ARC controller logs
 kubectl logs -n arc-system deployment/controller
 
-# Check runner pod logs
-kubectl logs -n arc-runners -l app=github-actions-runner
+# Check runner pod logs (using new namespace structure)
+kubectl logs -n arc-systems -l app.kubernetes.io/name=gha-runner-scale-set
 
 # Check MCP server metrics (if enabled)
 curl http://localhost:3000/metrics

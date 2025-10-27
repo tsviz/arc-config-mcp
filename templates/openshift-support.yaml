@@ -1,0 +1,277 @@
+# ARC 0.13.0: Red Hat OpenShift support configuration
+# This template provides OpenShift-specific configurations for enterprise compatibility
+
+apiVersion: security.openshift.io/v1
+kind: SecurityContextConstraints
+metadata:
+  name: arc-runner-scc
+  labels:
+    arc.version: "0.13.0"
+    arc.feature: "openshift-support"
+    arc.platform: "openshift"
+allowHostDirVolumePlugin: false
+allowHostIPC: false
+allowHostNetwork: false
+allowHostPID: false
+allowHostPorts: false
+allowPrivilegedContainer: false
+allowedCapabilities: []
+defaultAddCapabilities: []
+fsGroup:
+  type: MustRunAs
+  ranges:
+    - min: 1000
+    - max: 65535
+groups: []
+priority: 10
+readOnlyRootFilesystem: true
+requiredDropCapabilities:
+  - ALL
+runAsUser:
+  type: MustRunAsRange
+  uidRangeMin: 1000
+  uidRangeMax: 65535
+seLinuxContext:
+  type: MustRunAs
+  seLinuxOptions:
+    level: "s0:c123,c456"
+supplementalGroups:
+  type: MustRunAs
+  ranges:
+    - min: 1000
+    - max: 65535
+users:
+  - system:serviceaccount:arc-systems:arc-runner
+volumes:
+  - configMap
+  - downwardAPI
+  - emptyDir
+  - persistentVolumeClaim
+  - projected
+  - secret
+  - csi  # For Azure Key Vault integration
+
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: arc-runner
+  namespace: arc-systems
+  labels:
+    arc.version: "0.13.0"
+    arc.feature: "openshift-support"
+  annotations:
+    serviceaccounts.openshift.io/oauth-redirectreference.first: |
+      {"kind":"OAuthRedirectReference","apiVersion":"v1","reference":{"kind":"Route","name":"arc-oauth"}}
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: arc-runner-openshift
+  labels:
+    arc.version: "0.13.0"
+    arc.feature: "openshift-support"
+rules:
+  - apiGroups: [""]
+    resources: ["pods", "pods/exec", "pods/log"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: ["apps"]
+    resources: ["deployments", "replicasets"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: ["security.openshift.io"]
+    resources: ["securitycontextconstraints"]
+    verbs: ["use"]
+    resourceNames: ["arc-runner-scc"]
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: arc-runner-openshift-binding
+  labels:
+    arc.version: "0.13.0"
+    arc.feature: "openshift-support"
+subjects:
+  - kind: ServiceAccount
+    name: arc-runner
+    namespace: arc-systems
+roleRef:
+  kind: ClusterRole
+  name: arc-runner-openshift
+  apiGroup: rbac.authorization.k8s.io
+
+---
+# OpenShift Route for external access
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: arc-webhook-route
+  namespace: arc-systems
+  labels:
+    arc.version: "0.13.0"
+    arc.feature: "openshift-support"
+  annotations:
+    haproxy.router.openshift.io/balance: "roundrobin"
+    haproxy.router.openshift.io/timeout: "30s"
+spec:
+  host: arc-webhook.apps.openshift.example.com  # Replace with your OpenShift domain
+  to:
+    kind: Service
+    name: arc-webhook-service
+    weight: 100
+  port:
+    targetPort: webhook
+  tls:
+    termination: edge
+    insecureEdgeTerminationPolicy: Redirect
+  wildcardPolicy: None
+
+---
+# OpenShift-specific runner deployment
+apiVersion: actions.summerwind.dev/v1alpha1
+kind: RunnerDeployment
+metadata:
+  name: arc-runners-openshift
+  namespace: arc-systems
+  labels:
+    arc.version: "0.13.0"
+    arc.feature: "openshift-support"
+    arc.platform: "openshift"
+    # Enhanced metrics labels for 0.13.0
+    actions.github.com/workflow-name: "openshift-ci"
+    actions.github.com/target: "enterprise"
+spec:
+  replicas: 2
+  template:
+    spec:
+      organization: <GITHUB_ORG>
+      
+      # OpenShift-specific configuration
+      serviceAccountName: arc-runner
+      
+      # Container mode optimized for OpenShift
+      containerMode: kubernetes-novolume
+      
+      # OpenShift-compatible security context
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1001  # Must be within SCC range
+        runAsGroup: 1001
+        fsGroup: 1001
+        supplementalGroups: [1001]
+        seLinuxOptions:
+          level: "s0:c123,c456"
+      
+      containers:
+      - name: runner
+        image: registry.redhat.io/ubi8/ubi:latest  # Use Red Hat UBI base image
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          runAsNonRoot: true
+          runAsUser: 1001
+          capabilities:
+            drop:
+              - ALL
+        
+        # OpenShift-optimized resources
+        resources:
+          limits:
+            cpu: "2.0"
+            memory: "2Gi"
+            ephemeral-storage: "10Gi"
+          requests:
+            cpu: "250m"
+            memory: "512Mi"
+            ephemeral-storage: "5Gi"
+        
+        env:
+          - name: RUNNER_FEATURE_FLAG_EPHEMERAL
+            value: "true"
+          - name: RUNNER_JIT_CONFIG_SECURE
+            value: "true"
+          - name: OPENSHIFT_BUILD_NAMESPACE
+            valueFrom:
+              fieldRef:
+                fieldPath: metadata.namespace
+          - name: OPENSHIFT_BUILD_NAME
+            valueFrom:
+              fieldRef:
+                fieldPath: metadata.name
+        
+        # Volume mounts for OpenShift
+        volumeMounts:
+          - name: runner-workspace
+            mountPath: /tmp/runner-workspace
+          - name: runner-tmp
+            mountPath: /tmp
+          - name: openshift-config
+            mountPath: /etc/openshift
+            readOnly: true
+      
+      # Volumes for OpenShift environment
+      volumes:
+        - name: runner-workspace
+          emptyDir:
+            sizeLimit: "5Gi"
+        - name: runner-tmp
+          emptyDir:
+            sizeLimit: "2Gi"
+        - name: openshift-config
+          configMap:
+            name: openshift-runner-config
+            optional: true
+      
+      # Node selection for OpenShift worker nodes
+      nodeSelector:
+        node-role.kubernetes.io/worker: ""
+        beta.kubernetes.io/arch: "amd64"
+      
+      # Tolerations for OpenShift infrastructure
+      tolerations:
+        - key: "node.openshift.io/memory-pressure"
+          operator: "Exists"
+          effect: "NoSchedule"
+        - key: "github-actions"
+          operator: "Equal"
+          value: "dedicated"
+          effect: "NoSchedule"
+      
+      # Secret management
+      envFrom:
+        - secretRef:
+            name: controller-manager
+
+---
+# OpenShift-specific ConfigMap
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: openshift-runner-config
+  namespace: arc-systems
+  labels:
+    arc.version: "0.13.0"
+    arc.feature: "openshift-support"
+data:
+  runner.properties: |
+    # OpenShift-specific runner configuration
+    openshift.platform=true
+    openshift.version=4.x
+    container.runtime=cri-o
+    security.scc=arc-runner-scc
+    networking.sdn=openshift-sdn
+    
+  startup.sh: |
+    #!/bin/bash
+    echo "Starting ARC runner on OpenShift..."
+    echo "Security Context Constraints: arc-runner-scc"
+    echo "Service Account: arc-runner"
+    echo "Container Runtime: CRI-O"
+    
+    # OpenShift-specific environment setup
+    export OPENSHIFT_BUILD_NAMESPACE=${OPENSHIFT_BUILD_NAMESPACE:-arc-systems}
+    export CONTAINER_RUNTIME="cri-o"
+    
+    # Start the runner
+    exec /opt/runner/bin/Runner.Listener run --startuptype service

@@ -6,6 +6,7 @@
  */
 
 import * as k8s from '@kubernetes/client-node';
+import * as https from 'https';
 import type { Logger } from 'winston';
 import type { IKubernetesService } from '../types/kubernetes.js';
 
@@ -55,6 +56,67 @@ export class KubernetesEnhancedService implements IKubernetesService {
 
         try {
             this.kc.loadFromDefault();
+            
+            // Handle Docker Desktop self-signed certificates with strict safety checks
+            const currentContext = this.kc.getCurrentContext();
+            const cluster = this.kc.getCurrentCluster();
+            
+            if (currentContext && cluster && cluster.server) {
+                // Multiple safety checks to ensure we only disable TLS verification for Docker Desktop
+                const contextName = currentContext.toLowerCase();
+                const serverUrl = cluster.server.toLowerCase();
+                
+                const isDockerDesktopContext = contextName.includes('docker-desktop') || 
+                                             contextName.includes('docker-for-desktop');
+                
+                const isLocalhost = serverUrl.includes('127.0.0.1') || 
+                                  serverUrl.includes('localhost') ||
+                                  serverUrl.includes('0.0.0.0');
+                
+                // Only disable TLS verification if BOTH conditions are met:
+                // 1. The context name explicitly indicates Docker Desktop
+                // 2. The server URL is localhost/127.0.0.1
+                const isDockerDesktop = isDockerDesktopContext && isLocalhost;
+                
+                // Additional safety: never disable for cloud domains
+                const isCloudCluster = serverUrl.includes('.amazonaws.com') ||
+                                     serverUrl.includes('.gcp.') ||
+                                     serverUrl.includes('.azure.') ||
+                                     serverUrl.includes('.digitalocean.com') ||
+                                     serverUrl.includes('.linode.com') ||
+                                     serverUrl.includes('.k8s.') ||
+                                     !isLocalhost; // Any non-localhost is considered cloud
+                
+                if (isDockerDesktop && !isCloudCluster) {
+                    this.logger.info('Detected Docker Desktop local cluster, configuring for self-signed certificates', {
+                        context: currentContext,
+                        server: cluster.server
+                    });
+                    
+                    // Create a custom HTTPS agent that ignores certificate errors ONLY for Docker Desktop
+                    const httpsAgent = new https.Agent({
+                        rejectUnauthorized: false
+                    });
+                    
+                    // Apply the custom agent to the kubeconfig
+                    this.kc.applyToHTTPSOptions = (options: any) => {
+                        options.agent = httpsAgent;
+                        return options;
+                    };
+                    
+                    this.logger.info('Applied custom HTTPS agent for Docker Desktop cluster');
+                } else if (isCloudCluster) {
+                    this.logger.info('Detected cloud Kubernetes cluster, using standard TLS verification', {
+                        context: currentContext,
+                        server: cluster.server
+                    });
+                } else {
+                    this.logger.info('Using standard Kubernetes TLS configuration', {
+                        context: currentContext,
+                        server: cluster.server
+                    });
+                }
+            }
         } catch (error) {
             this.logger.error('Failed to load Kubernetes configuration', { error });
             throw new Error('Kubernetes configuration not found or invalid');
@@ -166,8 +228,8 @@ export class KubernetesEnhancedService implements IKubernetesService {
      */
     async getNamespace(name: string): Promise<NamespaceInfo> {
         try {
-            const response = await this.k8sApi.readNamespace(name);
-            const ns = response.body;
+            const response = await this.k8sApi.readNamespace({ name });
+            const ns = response;
 
             return {
                 name: ns.metadata?.name || '',
@@ -194,7 +256,7 @@ export class KubernetesEnhancedService implements IKubernetesService {
                 }
             };
 
-            await this.k8sApi.createNamespace(namespace);
+            await this.k8sApi.createNamespace({ body: namespace });
             this.logger.info('Namespace created successfully', { namespace: name, labels });
         } catch (error: any) {
             if (error.statusCode === 409) {
@@ -220,16 +282,11 @@ export class KubernetesEnhancedService implements IKubernetesService {
             };
 
             const options = { headers: { 'Content-Type': 'application/merge-patch+json' } };
-            await this.k8sApi.patchNamespace(
+            await this.k8sApi.patchNamespace({
                 name,
-                patch,
-                undefined,
-                undefined,
-                undefined,
-                undefined,
-                undefined,
-                options
-            );
+                body: patch,
+                ...options
+            });
 
             this.logger.info('Namespace labels updated', { namespace: name, labels });
         } catch (error) {
@@ -243,7 +300,7 @@ export class KubernetesEnhancedService implements IKubernetesService {
      */
     async deleteNamespace(name: string): Promise<void> {
         try {
-            await this.k8sApi.deleteNamespace(name);
+            await this.k8sApi.deleteNamespace({ name });
             this.logger.info('Namespace deleted', { namespace: name });
         } catch (error) {
             this.logger.error('Failed to delete namespace', { namespace: name, error });
@@ -257,10 +314,11 @@ export class KubernetesEnhancedService implements IKubernetesService {
     async listDeployments(namespace?: string): Promise<DeploymentInfo[]> {
         try {
             const response = namespace
-                ? await this.appsApi.listNamespacedDeployment(namespace)
+                ? await this.appsApi.listNamespacedDeployment({ namespace })
                 : await this.appsApi.listDeploymentForAllNamespaces();
 
-            return response.body.items.map(deployment => ({
+            const items = response?.items || [];
+            return items.map((deployment: any) => ({
                 name: deployment.metadata?.name || '',
                 namespace: deployment.metadata?.namespace || '',
                 replicas: deployment.spec?.replicas || 0,
@@ -281,8 +339,8 @@ export class KubernetesEnhancedService implements IKubernetesService {
      */
     async getDeploymentStatus(name: string, namespace: string): Promise<DeploymentInfo> {
         try {
-            const response = await this.appsApi.readNamespacedDeployment(name, namespace);
-            const deployment = response.body;
+            const response = await this.appsApi.readNamespacedDeployment({ name, namespace });
+            const deployment = response;
 
             return {
                 name: deployment.metadata?.name || '',
@@ -351,7 +409,10 @@ export class KubernetesEnhancedService implements IKubernetesService {
                 stringData: data
             };
 
-            await this.k8sApi.createNamespacedSecret(namespace, secret);
+            await this.k8sApi.createNamespacedSecret({ 
+                namespace, 
+                body: secret 
+            });
             this.logger.info('Secret created successfully', { name, namespace });
         } catch (error: any) {
             if (error.statusCode === 409) {
@@ -386,7 +447,11 @@ export class KubernetesEnhancedService implements IKubernetesService {
                 stringData: data
             };
 
-            await this.k8sApi.replaceNamespacedSecret(name, namespace, secret);
+            await this.k8sApi.replaceNamespacedSecret({
+                name,
+                namespace,
+                body: secret
+            });
             this.logger.info('Secret updated successfully', { name, namespace });
         } catch (error) {
             this.logger.error('Failed to update secret', { name, namespace, error });
@@ -400,36 +465,28 @@ export class KubernetesEnhancedService implements IKubernetesService {
     async getPodLogs(namespace: string, labelSelector: string, lines: number = 100): Promise<string> {
         try {
             // First, get pods with the label selector
-            const podsResponse = await this.k8sApi.listNamespacedPod(
+            const podsResponse = await this.k8sApi.listNamespacedPod({
                 namespace,
-                undefined, undefined, undefined, undefined, labelSelector
-            );
+                labelSelector
+            });
 
-            if (podsResponse.body.items.length === 0) {
+            if (podsResponse.items.length === 0) {
                 return 'No pods found with the specified label selector';
             }
 
             // Get logs from the first pod
-            const podName = podsResponse.body.items[0].metadata?.name;
+            const podName = podsResponse.items[0].metadata?.name;
             if (!podName) {
                 return 'Pod name not found';
             }
 
-            const logsResponse = await this.k8sApi.readNamespacedPodLog(
-                podName,
+            const logsResponse = await this.k8sApi.readNamespacedPodLog({
+                name: podName,
                 namespace,
-                undefined, // container
-                undefined, // follow
-                undefined, // insecureSkipTLSVerifyBackend
-                undefined, // limitBytes
-                undefined, // pretty
-                undefined, // previous
-                undefined, // sinceSeconds
-                lines, // tailLines
-                undefined // timestamps
-            );
+                tailLines: lines
+            });
 
-            return logsResponse.body;
+            return logsResponse as string;
         } catch (error) {
             this.logger.error('Failed to get pod logs', { namespace, labelSelector, error });
             throw new Error(`Failed to get pod logs: ${error}`);
@@ -441,9 +498,9 @@ export class KubernetesEnhancedService implements IKubernetesService {
      */
     async listNetworkPolicies(namespace: string): Promise<NetworkPolicyInfo[]> {
         try {
-            const response = await this.networkingApi.listNamespacedNetworkPolicy(namespace);
+            const response = await this.networkingApi.listNamespacedNetworkPolicy({ namespace });
 
-            return response.body.items.map(policy => ({
+            return response.items.map((policy: any) => ({
                 name: policy.metadata?.name || '',
                 namespace: policy.metadata?.namespace || '',
                 labels: policy.metadata?.labels || {}
@@ -466,10 +523,10 @@ export class KubernetesEnhancedService implements IKubernetesService {
             switch (kind) {
                 case 'NetworkPolicy':
                     try {
-                        await this.networkingApi.createNamespacedNetworkPolicy(namespace, resource);
+                        await this.networkingApi.createNamespacedNetworkPolicy({ namespace, body: resource });
                     } catch (error: any) {
                         if (error.statusCode === 409) {
-                            await this.networkingApi.replaceNamespacedNetworkPolicy(name, namespace, resource);
+                            await this.networkingApi.replaceNamespacedNetworkPolicy({ name, namespace, body: resource });
                         } else {
                             throw error;
                         }
@@ -478,10 +535,10 @@ export class KubernetesEnhancedService implements IKubernetesService {
 
                 case 'Secret':
                     try {
-                        await this.k8sApi.createNamespacedSecret(namespace, resource);
+                        await this.k8sApi.createNamespacedSecret({ namespace, body: resource });
                     } catch (error: any) {
                         if (error.statusCode === 409) {
-                            await this.k8sApi.replaceNamespacedSecret(name, namespace, resource);
+                            await this.k8sApi.replaceNamespacedSecret({ name, namespace, body: resource });
                         } else {
                             throw error;
                         }
@@ -490,10 +547,10 @@ export class KubernetesEnhancedService implements IKubernetesService {
 
                 case 'ConfigMap':
                     try {
-                        await this.k8sApi.createNamespacedConfigMap(namespace, resource);
+                        await this.k8sApi.createNamespacedConfigMap({ namespace, body: resource });
                     } catch (error: any) {
                         if (error.statusCode === 409) {
-                            await this.k8sApi.replaceNamespacedConfigMap(name, namespace, resource);
+                            await this.k8sApi.replaceNamespacedConfigMap({ name, namespace, body: resource });
                         } else {
                             throw error;
                         }
@@ -508,14 +565,14 @@ export class KubernetesEnhancedService implements IKubernetesService {
                     const plural = `${kind.toLowerCase()}s`; // Simple pluralization
 
                     try {
-                        await this.customObjectsApi.createNamespacedCustomObject(
-                            group, version, namespace, plural, resource
-                        );
+                        await this.customObjectsApi.createNamespacedCustomObject({
+                            group, version, namespace, plural, body: resource
+                        });
                     } catch (error: any) {
                         if (error.statusCode === 409) {
-                            await this.customObjectsApi.replaceNamespacedCustomObject(
-                                group, version, namespace, plural, name, resource
-                            );
+                            await this.customObjectsApi.replaceNamespacedCustomObject({
+                                group, version, namespace, plural, name, body: resource
+                            });
                         } else {
                             throw error;
                         }
@@ -541,10 +598,10 @@ export class KubernetesEnhancedService implements IKubernetesService {
             const plural = `${kind.toLowerCase()}s`; // Simple pluralization
 
             const response = namespace
-                ? await this.customObjectsApi.listNamespacedCustomObject(group, version, namespace, plural)
-                : await this.customObjectsApi.listClusterCustomObject(group, version, plural);
+                ? await this.customObjectsApi.listNamespacedCustomObject({ group, version, namespace, plural })
+                : await this.customObjectsApi.listClusterCustomObject({ group, version, plural });
 
-            return (response.body as any).items || [];
+            return (response as any).items || [];
         } catch (error) {
             this.logger.error('Failed to get custom resources', { apiVersion, kind, namespace, error });
             return [];
@@ -565,9 +622,9 @@ export class KubernetesEnhancedService implements IKubernetesService {
             for (const resource of resources) {
                 const name = resource.metadata?.name;
                 if (name) {
-                    await this.customObjectsApi.deleteNamespacedCustomObject(
+                    await this.customObjectsApi.deleteNamespacedCustomObject({
                         group, version, namespace, plural, name
-                    );
+                    });
                 }
             }
 
@@ -616,20 +673,20 @@ export class KubernetesEnhancedService implements IKubernetesService {
             if (resourceType.toLowerCase() === 'namespace') {
                 await this.deleteNamespace(name);
             } else if (resourceType.toLowerCase() === 'deployment') {
-                await this.appsApi.deleteNamespacedDeployment(name, namespace);
+                await this.appsApi.deleteNamespacedDeployment({ name, namespace });
             } else if (resourceType.toLowerCase() === 'secret') {
-                await this.k8sApi.deleteNamespacedSecret(name, namespace);
+                await this.k8sApi.deleteNamespacedSecret({ name, namespace });
             } else if (resourceType.toLowerCase() === 'configmap') {
-                await this.k8sApi.deleteNamespacedConfigMap(name, namespace);
+                await this.k8sApi.deleteNamespacedConfigMap({ name, namespace });
             } else {
                 // Try as custom resource
                 const parts = resourceType.split('/');
                 if (parts.length === 2) {
                     const [group, version] = parts;
                     const plural = `${resourceType.toLowerCase()}s`;
-                    await this.customObjectsApi.deleteNamespacedCustomObject(
+                    await this.customObjectsApi.deleteNamespacedCustomObject({
                         group, version, namespace, plural, name
-                    );
+                    });
                 }
             }
         } catch (error) {
@@ -649,17 +706,11 @@ export class KubernetesEnhancedService implements IKubernetesService {
                 }
             };
 
-            await this.appsApi.patchNamespacedDeployment(
+            await this.appsApi.patchNamespacedDeployment({
                 name, 
                 namespace, 
-                patch,
-                undefined,
-                undefined,
-                undefined,
-                undefined,
-                undefined,
-                { headers: { 'Content-Type': 'application/merge-patch+json' } }
-            );
+                body: patch
+            });
 
             this.logger.info(`Scaled deployment ${name} to ${replicas} replicas`, { namespace });
         } catch (error) {
@@ -705,8 +756,8 @@ export class KubernetesEnhancedService implements IKubernetesService {
      */
     async getPodsInNamespace(namespace: string): Promise<any[]> {
         try {
-            const response = await this.k8sApi.listNamespacedPod(namespace);
-            return response.body.items;
+            const response = await this.k8sApi.listNamespacedPod({ namespace });
+            return response.items;
         } catch (error) {
             this.logger.error('Failed to get pods in namespace', { namespace, error });
             return [];

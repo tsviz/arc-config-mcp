@@ -1,0 +1,184 @@
+# ARC 0.13.0: Azure Key Vault integration template
+# This enables secure secret management without exposing secrets in workflow context
+
+apiVersion: v1
+kind: SecretProviderClass
+metadata:
+  name: arc-azure-keyvault
+  namespace: arc-systems
+  labels:
+    arc.version: "0.13.0"
+    arc.feature: "azure-keyvault"
+spec:
+  provider: azure
+  parameters:
+    # Azure Key Vault configuration
+    keyvaultName: "arc-production-kv"  # Replace with your Key Vault name
+    cloudName: ""                      # Optional: AzurePublicCloud (default)
+    
+    # Secrets to mount from Azure Key Vault
+    objects: |
+      array:
+        - |
+          objectName: github-token
+          objectType: secret
+          objectVersion: ""
+        - |
+          objectName: webhook-secret
+          objectType: secret
+          objectVersion: ""
+        - |
+          objectName: runner-registration-token
+          objectType: secret
+          objectVersion: ""
+        - |
+          objectName: database-connection-string
+          objectType: secret
+          objectVersion: ""
+    
+    # Tenant ID for Azure authentication
+    tenantId: "your-tenant-id"  # Replace with your Azure tenant ID
+  
+  # Secret objects to create in Kubernetes
+  secretObjects:
+    - secretName: controller-manager
+      type: Opaque
+      data:
+        - objectName: github-token
+          key: github_token
+        - objectName: webhook-secret
+          key: webhook_secret
+    
+    - secretName: runner-secrets
+      type: Opaque
+      data:
+        - objectName: runner-registration-token
+          key: registration_token
+        - objectName: database-connection-string
+          key: db_connection
+
+---
+# Managed Identity for Azure Key Vault access (recommended approach)
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: arc-azure-identity
+  namespace: arc-systems
+  labels:
+    arc.version: "0.13.0"
+    arc.feature: "azure-keyvault"
+  annotations:
+    azure.workload.identity/client-id: "your-managed-identity-client-id"
+    azure.workload.identity/tenant-id: "your-tenant-id"
+
+---
+# Alternative: Service Principal authentication (if managed identity not available)
+apiVersion: v1
+kind: Secret
+metadata:
+  name: azure-sp-credentials
+  namespace: arc-systems
+  labels:
+    arc.version: "0.13.0"
+    arc.feature: "azure-keyvault"
+type: Opaque
+data:
+  # Base64 encoded values (replace with actual values)
+  clientid: "base64-encoded-client-id"
+  clientsecret: "base64-encoded-client-secret"
+
+---
+# Pod configuration example using Azure Key Vault
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: arc-controller-with-keyvault
+  namespace: arc-systems
+  labels:
+    arc.version: "0.13.0"
+    arc.feature: "azure-keyvault"
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: arc-controller
+  template:
+    metadata:
+      labels:
+        app: arc-controller
+        azure.workload.identity/use: "true"  # Enable workload identity
+    spec:
+      serviceAccountName: arc-azure-identity
+      containers:
+        - name: manager
+          image: ghcr.io/actions/actions-runner-controller:latest
+          env:
+            # Secrets are now securely accessed from Azure Key Vault
+            - name: GITHUB_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: controller-manager
+                  key: github_token
+            - name: WEBHOOK_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: controller-manager
+                  key: webhook_secret
+          
+          # Mount Azure Key Vault secrets via CSI driver
+          volumeMounts:
+            - name: secrets-store
+              mountPath: "/mnt/secrets"
+              readOnly: true
+          
+          resources:
+            limits:
+              cpu: "500m"
+              memory: "256Mi"
+            requests:
+              cpu: "100m"
+              memory: "128Mi"
+      
+      volumes:
+        - name: secrets-store
+          csi:
+            driver: secrets-store.csi.k8s.io
+            readOnly: true
+            volumeAttributes:
+              secretProviderClass: "arc-azure-keyvault"
+            nodePublishSecretRef:
+              name: azure-sp-credentials  # Only needed if not using managed identity
+
+---
+# RBAC for Azure Key Vault integration
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: arc-azure-keyvault-reader
+  labels:
+    arc.version: "0.13.0"
+    arc.feature: "azure-keyvault"
+rules:
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["secrets-store.csi.x-k8s.io"]
+    resources: ["secretproviderclasses"]
+    verbs: ["get", "list", "watch"]
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: arc-azure-keyvault-binding
+  labels:
+    arc.version: "0.13.0"
+    arc.feature: "azure-keyvault"
+subjects:
+  - kind: ServiceAccount
+    name: arc-azure-identity
+    namespace: arc-systems
+roleRef:
+  kind: ClusterRole
+  name: arc-azure-keyvault-reader
+  apiGroup: rbac.authorization.k8s.io

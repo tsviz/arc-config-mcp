@@ -1,0 +1,146 @@
+apiVersion: actions.summerwind.dev/v1alpha1
+kind: RunnerDeployment
+metadata:
+  name: arc-runners-novolume
+  namespace: arc-systems
+  labels:
+    # ARC 0.13.0 enhanced metrics labels
+    actions.github.com/workflow-name: "ci-cd-pipeline"
+    actions.github.com/target: "repository"
+    arc.version: "0.13.0"
+    arc.container-mode: "kubernetes-novolume"
+  annotations:
+    arc.io/container-hooks: "enabled"
+    arc.io/storage-optimization: "local-only"
+spec:
+  replicas: 3
+  template:
+    spec:
+      organization: <GITHUB_ORG>
+      repository: <GITHUB_REPO>  # Optional: repository-level runners
+      
+      # ARC 0.13.0: New container mode for enhanced performance
+      containerMode: kubernetes-novolume
+      
+      # Container lifecycle hooks for workspace management
+      containers:
+      - name: runner
+        image: ghcr.io/actions/actions-runner:latest
+        lifecycle:
+          preStart:
+            exec:
+              command:
+                - "/bin/sh"
+                - "-c"
+                - |
+                  echo "Starting container hook: restoring workspace..."
+                  /opt/runner/hooks/restore-workspace.sh || true
+                  echo "Container hook completed successfully"
+          preStop:
+            exec:
+              command:
+                - "/bin/sh"
+                - "-c"
+                - |
+                  echo "Stopping container hook: exporting workspace..."
+                  /opt/runner/hooks/export-workspace.sh || true
+                  echo "Container hook export completed"
+        
+        # Enhanced security context
+        securityContext:
+          runAsNonRoot: true
+          runAsUser: 1001
+          runAsGroup: 1001
+          readOnlyRootFilesystem: true
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+              - ALL
+            add:
+              - NET_BIND_SERVICE  # Only if needed for specific workflows
+        
+        # Optimized resource allocation for local storage mode
+        resources:
+          limits:
+            cpu: "2.0"
+            memory: "2Gi"
+            ephemeral-storage: "10Gi"  # Local storage for workspace
+          requests:
+            cpu: "250m"
+            memory: "512Mi"
+            ephemeral-storage: "5Gi"
+        
+        # Environment variables for enhanced security
+        env:
+          - name: RUNNER_FEATURE_FLAG_EPHEMERAL
+            value: "true"
+          - name: RUNNER_JIT_CONFIG_SECURE
+            value: "true"
+          - name: RUNNER_CONTAINER_HOOKS
+            value: "true"
+          - name: RUNNER_WORKSPACE_LOCATION
+            value: "/tmp/runner-workspace"  # Local ephemeral storage
+        
+        # Volume mounts for local workspace (no RWX needed)
+        volumeMounts:
+          - name: runner-workspace
+            mountPath: /tmp/runner-workspace
+          - name: runner-temp
+            mountPath: /tmp
+          # Optional: Azure Key Vault secrets
+          - name: azure-keyvault-secrets
+            mountPath: /mnt/secrets
+            readOnly: true
+      
+      # Volumes configuration - local storage only
+      volumes:
+        - name: runner-workspace
+          emptyDir:
+            sizeLimit: "5Gi"
+        - name: runner-temp
+          emptyDir:
+            sizeLimit: "2Gi"
+        # Optional: Azure Key Vault CSI volume
+        - name: azure-keyvault-secrets
+          csi:
+            driver: secrets-store.csi.k8s.io
+            readOnly: true
+            volumeAttributes:
+              secretProviderClass: "arc-azure-keyvault"
+      
+      # Network configuration for dual-stack support
+      dnsPolicy: "ClusterFirst"
+      dnsConfig:
+        options:
+          - name: ndots
+            value: "2"
+          - name: edns0
+      
+      # Enhanced secret management
+      envFrom:
+        - secretRef:
+            name: controller-manager
+      
+      # Node selection for performance optimization
+      nodeSelector:
+        arc.io/runner-type: "standard"
+        # Optional: dedicated nodes for github actions
+        kubernetes.io/arch: "amd64"
+      
+      # Tolerations for dedicated runner nodes
+      tolerations:
+        - key: "github-actions"
+          operator: "Equal"
+          value: "dedicated"
+          effect: "NoSchedule"
+      
+      # Anti-affinity for better distribution
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchLabels:
+                    app: arc-runners
+                topologyKey: kubernetes.io/hostname

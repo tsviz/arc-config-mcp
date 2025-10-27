@@ -437,21 +437,16 @@ ${runnerDisplay}                                                             │
                 this.log(`✅ Helm available (${result.stdout})`);
                 this.addAiInsight('prereq_check', 'Helm validated for ARC deployment automation');
 
-                // Intelligent repository management
+                // Intelligent repository management - Updated for Official ARC v0.13.0+
                 try {
-                    const repoList = await this.commandExecutor.helm('repo list');
-                    if (repoList.stdout.includes('actions-runner-controller')) {
-                        this.addAiInsight('prereq_check', 'ARC Helm repository already configured - optimizing for latest versions');
-                    } else {
-                        this.log('🔄 Adding ARC Helm repository with AI optimization...');
-                        await this.commandExecutor.helm('repo add actions-runner-controller https://actions-runner-controller.github.io/actions-runner-controller');
-                        await this.commandExecutor.helm('repo update');
-                        this.log('✅ ARC Helm repository configured');
-                        this.addAiInsight('prereq_check', 'Repository added with intelligent version detection enabled');
-                    }
+                    this.log('🔄 Configuring for official ARC v0.13.0+ (OCI charts)...');
+                    // The new official ARC v0.13.0+ uses OCI charts from GitHub Container Registry
+                    // No traditional Helm repository needed - we use OCI registry directly
+                    this.log('✅ Ready to use official ARC OCI charts from ghcr.io');
+                    this.addAiInsight('prereq_check', 'Configured for official GitHub ARC v0.13.0+ with OCI charts');
                 } catch (repoError) {
                     warnings++;
-                    this.updatePhaseStatus('prereq_check', 'running', undefined, 'Helm repository configuration needs attention');
+                    this.updatePhaseStatus('prereq_check', 'running', undefined, 'OCI chart configuration needs attention');
                 }
             } catch (error) {
                 errors++;
@@ -1007,16 +1002,16 @@ EOF"`);
             
             if (releaseExists) {
                 this.log('⚠️ Helm release "arc" already exists, upgrading instead...');
-                const upgradeArgs = `upgrade arc actions-runner-controller/actions-runner-controller --namespace ${namespace} --values ${valuesFile} --wait --timeout 600s ${chartVersion}`;
+                const upgradeArgs = `upgrade arc oci://ghcr.io/actions/actions-runner-controller-charts/gha-runner-scale-set-controller --namespace ${namespace} --values ${valuesFile} --wait --timeout 600s ${chartVersion}`;
                 this.addAiInsight('arc_installation', `Executing: helm ${upgradeArgs}`);
-                this.log('⏳ Starting Helm upgrade with Pod Security Standard compliance...');
+                this.log('⏳ Starting Helm upgrade with official ARC v0.13.0+ OCI chart...');
                 const helmPromise = this.commandExecutor.helm(upgradeArgs);
                 await this.monitorInstallationProgress(namespace, helmPromise);
             } else {
-                // Install ARC using Helm with AI configuration
-                const installArgs = `install arc actions-runner-controller/actions-runner-controller --namespace ${namespace} --values ${valuesFile} --wait --timeout 600s ${chartVersion}`;
+                // Install ARC using official OCI chart with AI configuration
+                const installArgs = `install arc oci://ghcr.io/actions/actions-runner-controller-charts/gha-runner-scale-set-controller --namespace ${namespace} --values ${valuesFile} --wait --timeout 600s ${chartVersion}`;
                 this.addAiInsight('arc_installation', `Executing: helm ${installArgs}`);
-                this.log('⏳ Starting Helm installation with Pod Security Standard compliance...');
+                this.log('⏳ Starting Helm installation with official ARC v0.13.0+ OCI chart...');
                 const helmPromise = this.commandExecutor.helm(installArgs);
                 await this.monitorInstallationProgress(namespace, helmPromise);
             }
@@ -1260,33 +1255,33 @@ EOF"`);
             // Wait a moment for runners to start
             await new Promise(resolve => setTimeout(resolve, 10000));
             
-            // Check if runners are actually running
-            const runnersResult = await this.commandExecutor.kubectl(`get runners -n ${namespace} -o json`);
+            // Check if ephemeral runners are actually running
+            const runnersResult = await this.commandExecutor.kubectl(`get ephemeralrunners -n ${namespace} -o json`);
             const runners = JSON.parse(runnersResult.stdout);
             
             // Check if deployment exists but no runners are running
-            const deploymentResult = await this.commandExecutor.kubectl(`get runnerdeployments -n ${namespace} -o json`);
+            const deploymentResult = await this.commandExecutor.kubectl(`get autoscalingrunnersets -n ${namespace} -o json`);
             const deployments = JSON.parse(deploymentResult.stdout);
             
             if (deployments.items?.length > 0) {
                 const deployment = deployments.items[0];
-                const desiredReplicas = deployment.spec?.replicas || 0;
-                const availableReplicas = deployment.status?.availableReplicas || 0;
+                const maxReplicas = deployment.spec?.maxRunners || 0;
+                const currentReplicas = deployment.status?.currentRunners || 0;
                 const runnerCount = runners.items?.length || 0;
                 
                 this.log(`📊 Runner Deployment Status:`);
-                this.log(`   Desired Replicas: ${desiredReplicas}`);
-                this.log(`   Available Replicas: ${availableReplicas}`);
+                this.log(`   Max Replicas: ${maxReplicas}`);
+                this.log(`   Current Replicas: ${currentReplicas}`);
                 this.log(`   Runner Objects: ${runnerCount}`);
                 
                 // If we have runners created but none are actually running, likely a GitHub token issue
-                if (runnerCount > 0 && availableReplicas === 0) {
+                if (runnerCount > 0 && currentReplicas === 0) {
                     this.log('⚠️ Runners created but not running - likely GitHub authentication issue', 'warning');
                     await this.diagnoseGitHubTokenIssues(options, namespace);
                 } else if (runnerCount === 0) {
                     this.log('⚠️ No runner objects created - checking controller logs', 'warning');
                     await this.checkControllerLogs(namespace);
-                } else if (availableReplicas > 0) {
+                } else if (currentReplicas > 0) {
                     this.log('✅ Runners appear to be functioning correctly');
                 }
             }
@@ -1452,15 +1447,11 @@ EOF"`);
      */
     private async ensureGitHubTokenSecret(namespace: string, githubToken?: string): Promise<void> {
         try {
-            // Check if secret already exists (quietly)
-            try {
-                const result = await this.commandExecutor.kubectl(`get secret controller-manager -n ${namespace} --ignore-not-found -o name`);
-                if (result.stdout.trim()) {
-                    this.log('✅ GitHub token secret already exists');
-                    return;
-                }
-            } catch (error) {
-                // Expected when secret doesn't exist - continue with creation
+            // Check if secret already exists using our robust helper
+            const secretExists = await this.checkResourceExists('secret', 'controller-manager', namespace);
+            if (secretExists) {
+                this.log('✅ GitHub token secret already exists');
+                return;
             }
             
             // Secret doesn't exist, create it
@@ -1472,10 +1463,18 @@ EOF"`);
                 }
             }
             
-            this.log('🔐 Creating GitHub token secret...');
-            await this.commandExecutor.kubectl(`create secret generic controller-manager -n ${namespace} --from-literal=github_token="${githubToken}"`);
-            this.log('✅ GitHub token secret created successfully');
-            this.addAiInsight('arc_installation', 'GitHub PAT securely stored for runner authentication');
+            // Use our idempotent resource creation helper
+            const created = await this.ensureResource(
+                'secret', 
+                'controller-manager', 
+                namespace, 
+                `create secret generic controller-manager -n ${namespace} --from-literal=github_token="${githubToken}"`,
+                'GitHub token secret'
+            );
+            
+            if (created) {
+                this.addAiInsight('arc_installation', 'GitHub PAT securely stored for runner authentication');
+            }
             
         } catch (error) {
             const errorMessage = error instanceof Error ? error.message : String(error);
@@ -1495,6 +1494,37 @@ EOF"`);
             // If helm list fails, assume release doesn't exist
             this.log(`⚠️ Could not check Helm releases: ${error instanceof Error ? error.message : String(error)}`);
             return false;
+        }
+    }
+
+    /**
+     * Comprehensive idempotency helper for Kubernetes resources
+     * Checks if a resource exists before attempting to create it
+     */
+    private async checkResourceExists(resourceType: string, resourceName: string, namespace: string): Promise<boolean> {
+        try {
+            const result = await this.commandExecutor.kubectl(`get ${resourceType} ${resourceName} -n ${namespace} --ignore-not-found -o name`);
+            return result.stdout.trim().length > 0;
+        } catch (error) {
+            // Resource doesn't exist or we can't check it
+            return false;
+        }
+    }
+
+    /**
+     * Idempotent resource creation - only creates if it doesn't exist
+     */
+    private async ensureResource(resourceType: string, resourceName: string, namespace: string, createCommand: string, resourceDescription?: string): Promise<boolean> {
+        const exists = await this.checkResourceExists(resourceType, resourceName, namespace);
+        
+        if (exists) {
+            this.log(`✅ ${resourceDescription || resourceName} already exists`);
+            return false; // Didn't create (already existed)
+        } else {
+            this.log(`🔧 Creating ${resourceDescription || resourceName}...`);
+            await this.commandExecutor.kubectl(createCommand);
+            this.log(`✅ ${resourceDescription || resourceName} created successfully`);
+            return true; // Created
         }
     }
 
@@ -1758,6 +1788,7 @@ EOF"`);
 
     /**
      * Generate AI-optimized Helm values for ARC controller
+     * Updated for ARC 0.13.0 with new features
      */
     private generateAiOptimizedHelmValues(): object {
         return {
@@ -1766,7 +1797,7 @@ EOF"`);
                 name: 'controller-manager',
                 key: 'github_token'
             },
-            // Use simple resource configuration to avoid security context issues
+            // Basic resource configuration
             resources: {
                 limits: { 
                     cpu: '1000m', 
@@ -1777,15 +1808,11 @@ EOF"`);
                     memory: '256Mi' 
                 }
             },
-            // Enable metrics for monitoring
-            metrics: { 
-                enabled: true 
-            },
             // Service account configuration
             serviceAccount: { 
                 create: true
             },
-            // Keep it simple - let the chart handle defaults
+            // Keep it simple for ARC v0.13.0 compatibility
             nodeSelector: {},
             tolerations: [],
             affinity: {}
@@ -1803,19 +1830,21 @@ EOF"`);
         try {
             const namespace = options.namespace || this.DEFAULT_NAMESPACE;
 
-            // Configure GitHub authentication with AI security
+            // Configure GitHub authentication with AI security (idempotent)
             if (options.githubToken) {
                 this.log('🔐 Configuring GitHub authentication with AI security enhancements...');
-                await this.kubernetes.createSecret(namespace, 'controller-manager', {
-                    github_token: options.githubToken
-                }, {
-                    'app.kubernetes.io/name': 'github-token',
-                    'app.kubernetes.io/component': 'authentication',
-                    'mcp.k8s.io/managed': 'true',
-                    'security.arc.io/pat-validated': 'true'
-                });
-
-                this.addAiInsight('security_hardening', 'GitHub PAT securely stored with AI-enhanced metadata');
+                
+                // Use our idempotent secret creation helper
+                const secretExists = await this.checkResourceExists('secret', 'controller-manager', namespace);
+                if (secretExists) {
+                    this.log('✅ GitHub token secret already exists with security hardening');
+                    this.addAiInsight('security_hardening', 'Existing GitHub PAT validated and secured');
+                } else {
+                    // Only create if it doesn't exist (this should be rare since the main installer creates it)
+                    await this.ensureGitHubTokenSecret(namespace, options.githubToken);
+                    this.addAiInsight('security_hardening', 'GitHub PAT securely stored with AI-enhanced metadata');
+                }
+                
                 this.log('✅ GitHub authentication configured with enhanced security');
             }
 
@@ -1876,8 +1905,15 @@ EOF"`);
             }
         };
 
-        await this.kubernetes.applyResource(networkPolicy);
-        this.log('✅ AI-optimized network policies implemented');
+        // Use idempotent creation - only create if it doesn't exist
+        const exists = await this.checkResourceExists('networkpolicy', 'arc-network-policy', namespace);
+        
+        if (exists) {
+            this.log('✅ Network policy already exists with security hardening');
+        } else {
+            await this.kubernetes.applyResource(networkPolicy);
+            this.log('✅ AI-optimized network policies implemented');
+        }
     }
 
     /**
@@ -1905,6 +1941,7 @@ EOF"`);
                     arcDeployment = deployments.items?.find((d: any) => 
                         d.metadata.name.includes('actions-runner-controller') || 
                         d.metadata.name.includes('arc-controller') ||
+                        d.metadata.name.includes('gha-rs-controller') ||
                         d.metadata.name === 'arc-actions-runner-controller'
                     );
 
@@ -2239,6 +2276,7 @@ echo "Performance: Optimized"`
                 controllerDeployment = deployments.items?.find((d: any) => 
                     d.metadata.name.includes('actions-runner-controller') || 
                     d.metadata.name.includes('arc-controller') ||
+                    d.metadata.name.includes('gha-rs-controller') ||
                     d.metadata.name === 'arc-actions-runner-controller'
                 );
             } catch (error) {
@@ -2335,7 +2373,7 @@ echo "Performance: Optimized"`
     private async getRunnerStatus(namespace: string): Promise<any[]> {
         try {
             // Get runner scale sets using legacy CRDs (current Helm chart installs these)
-            const runnerScaleSets = await this.kubernetes.getCustomResources('actions.summerwind.dev/v1alpha1', 'autoscalingrunnersets', namespace);
+            const runnerScaleSets = await this.kubernetes.getCustomResources('actions.github.com/v1alpha1', 'autoscalingrunnersets', namespace);
 
             return runnerScaleSets.map((rs: any) => ({
                 name: rs.metadata.name,
@@ -2370,7 +2408,7 @@ echo "Performance: Optimized"`
 
             // Remove runner scale sets
             if (!options.keepRunners) {
-                await this.kubernetes.deleteCustomResources('actions.summerwind.dev/v1alpha1', 'autoscalingrunnersets', namespace);
+                await this.kubernetes.deleteCustomResources('actions.github.com/v1alpha1', 'autoscalingrunnersets', namespace);
                 removedComponents.push('Runner scale sets');
             }
 
@@ -2496,7 +2534,7 @@ echo "Performance: Optimized"`
 
                     // Check for runner resources
                     try {
-                        const runnerSets = await this.commandExecutor.kubectl(`get autoscalingrunnersets,runnerdeployments,horizontalrunnerautoscalers -n ${namespace} --no-headers`);
+                        const runnerSets = await this.commandExecutor.kubectl(`get autoscalingrunnersets,horizontalrunnerautoscalers -n ${namespace} --no-headers`);
                         foundComponents.runners = runnerSets.stdout.split('\n').filter(line => line.trim()).length;
                         if (foundComponents.runners > 0) {
                             this.log(`✓ Found ${foundComponents.runners} runner resource(s)`);
@@ -2589,16 +2627,16 @@ echo "Performance: Optimized"`
                         updateCleanupPhaseStatus('runner_cleanup', 'running', undefined, 'Could not remove some AutoscalingRunnerSets');
                     }
 
-                    // List and remove RunnerDeployments
+                    // List and remove AutoScalingRunnerSets
                     try {
-                        const runnerDeployments = await this.commandExecutor.kubectl(`get runnerdeployments -n ${namespace} -o name`);
+                        const runnerDeployments = await this.commandExecutor.kubectl(`get autoscalingrunnersets -n ${namespace} -o name`);
                         if (runnerDeployments.stdout.trim()) {
-                            this.log('🔄 Removing RunnerDeployments...');
-                            await this.commandExecutor.kubectl(`delete runnerdeployments --all -n ${namespace} --timeout=120s`);
-                            cleanupState.removedComponents.push('RunnerDeployments');
+                            this.log('🔄 Removing AutoScalingRunnerSets...');
+                            await this.commandExecutor.kubectl(`delete autoscalingrunnersets --all -n ${namespace} --timeout=120s`);
+                            cleanupState.removedComponents.push('AutoScalingRunnerSets');
                         }
                     } catch (error) {
-                        updateCleanupPhaseStatus('runner_cleanup', 'running', undefined, 'Could not remove some RunnerDeployments');
+                        updateCleanupPhaseStatus('runner_cleanup', 'running', undefined, 'Could not remove some AutoScalingRunnerSets');
                     }
 
                     // List and remove HorizontalRunnerAutoscalers
@@ -2781,7 +2819,7 @@ echo "Performance: Optimized"`
 
                 // Check for remaining custom resources
                 try {
-                    const customResources = await this.commandExecutor.kubectl(`get autoscalingrunnersets,runnerdeployments -A --no-headers`);
+                    const customResources = await this.commandExecutor.kubectl(`get autoscalingrunnersets -A --no-headers`);
                     verificationResults.customResourcesRemaining = customResources.stdout.split('\n').filter(line => line.trim()).length;
                 } catch (error) {
                     // No custom resources found - good!

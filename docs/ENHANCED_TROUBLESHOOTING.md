@@ -4,6 +4,27 @@
 
 This enhanced version of the ARC MCP server includes comprehensive troubleshooting capabilities based on real-world experience with ARC installations and cleanup operations. The system can automatically detect, diagnose, and fix common issues without requiring manual command-line intervention.
 
+## 🎉 Recent Improvements (October 2025)
+
+### ✅ Stack Overflow Recursion Fix
+**Issue Resolved:** "Maximum call stack size exceeded" during installation
+**Root Cause:** Enhanced installer was calling itself recursively instead of base class methods
+**Solution Applied:** Fixed method calls to use `super.installController()` instead of `this.installController()`
+**Impact:** Installation process now completes successfully without recursion errors
+
+### ✅ Official ARC v0.13.0 Upgrade
+**Upgrade Completed:** Migrated from legacy summerwind ARC to official GitHub ARC v0.13.0
+**Changes Made:**
+- Updated to official OCI charts: `oci://ghcr.io/actions/actions-runner-controller-charts/gha-runner-scale-set-controller`
+- Replaced legacy CRDs with official `actions.github.com` CRDs
+- Added support for new v0.13.0 features (container modes, dual-stack networking)
+- Enhanced cleanup handles both legacy and new CRD types
+
+### ✅ Helm Template Configuration Fix
+**Issue Resolved:** Template execution errors with `controllerManagerAddr` type mismatches
+**Solution Applied:** Simplified Helm values to use only proven configuration options
+**Result:** Clean installation with official ARC v0.13.0 components
+
 ## 🔧 Enhanced Troubleshooting Scenarios
 
 ### 1. Namespace Stuck Terminating
@@ -27,7 +48,7 @@ kubectl get namespace arc-systems -o json | jq '.spec.finalizers = []' | kubectl
 ### 2. Image Pull Authentication Issues
 
 **Issue:** `ImagePullBackOff` or `ErrImagePull` due to GitHub Container Registry authentication
-**Real-world Example:** `ghcr.io/actions/actions-runner-controller:v0.27.6`: unauthorized
+**Real-world Example:** `ghcr.io/actions/actions-runner-controller-charts/gha-runner-scale-set-controller:v0.13.0`: unauthorized
 
 **Auto-Fix Capabilities:**
 - ✅ Detects GHCR authentication failures
@@ -97,6 +118,13 @@ kubectl get namespace arc-systems -o json | jq '.spec.finalizers = []' | kubectl
 - ✅ Provides granular finalizer management
 
 **Supported Resource Types:**
+**Official ARC v0.13.0:**
+- `autoscalingrunnersets.actions.github.com`
+- `ephemeralrunnersets.actions.github.com`
+- `autoscalinglisteners.actions.github.com`
+- `ephemeralrunners.actions.github.com`
+
+**Legacy ARC (Summerwind):**
 - `runners.actions.summerwind.dev`
 - `autoscalingrunnersets.actions.summerwind.dev`
 - `runnerdeployments.actions.summerwind.dev`
