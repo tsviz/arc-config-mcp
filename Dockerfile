@@ -41,17 +41,13 @@ RUN case "${TARGETARCH}" in \
     && wget -q https://dl.k8s.io/release/$(wget -qO- https://dl.k8s.io/release/stable.txt)/bin/linux/${KUBECTL_ARCH}/kubectl -O /usr/local/bin/kubectl \
     && chmod +x /usr/local/bin/kubectl
 
-# Install helm with proper architecture detection  
-ARG HELM_VERSION=v3.14.2
+# Install helm with curl (more reliable)
 RUN case "${TARGETARCH}" in \
     amd64) HELM_ARCH=amd64 ;; \
     arm64) HELM_ARCH=arm64 ;; \
     *) echo "Unsupported architecture: ${TARGETARCH}" && exit 1 ;; \
     esac \
-    && wget -q https://get.helm.sh/helm-${HELM_VERSION}-linux-${HELM_ARCH}.tar.gz -O /tmp/helm.tar.gz \
-    && tar -xzf /tmp/helm.tar.gz -C /tmp \
-    && mv /tmp/linux-${HELM_ARCH}/helm /usr/local/bin/helm \
-    && rm -rf /tmp/helm.tar.gz /tmp/linux-${HELM_ARCH}
+    && curl -fsSL https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | DESIRED_VERSION=v3.15.4 bash
 
 # Verify installations
 RUN helm version && kubectl version --client
