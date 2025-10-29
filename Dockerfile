@@ -42,12 +42,13 @@ RUN case "${TARGETARCH}" in \
     && chmod +x /usr/local/bin/kubectl
 
 # Install helm with proper architecture detection  
+ARG HELM_VERSION=v3.14.2
 RUN case "${TARGETARCH}" in \
     amd64) HELM_ARCH=amd64 ;; \
     arm64) HELM_ARCH=arm64 ;; \
     *) echo "Unsupported architecture: ${TARGETARCH}" && exit 1 ;; \
     esac \
-    && wget -q https://get.helm.sh/helm-v3.16.4-linux-${HELM_ARCH}.tar.gz -O /tmp/helm.tar.gz \
+    && wget -q https://get.helm.sh/helm-${HELM_VERSION}-linux-${HELM_ARCH}.tar.gz -O /tmp/helm.tar.gz \
     && tar -xzf /tmp/helm.tar.gz -C /tmp \
     && mv /tmp/linux-${HELM_ARCH}/helm /usr/local/bin/helm \
     && rm -rf /tmp/helm.tar.gz /tmp/linux-${HELM_ARCH}
