@@ -8,6 +8,7 @@
 import type { IKubernetesService } from '../types/kubernetes.js';
 import type { GitHubService } from './github.js';
 import { CommandExecutor } from '../utils/command-executor.js';
+import { GitRepositoryDetector } from '../utils/git-repository-detector.js';
 
 export interface InstallationOptions {
     namespace?: string;
@@ -334,12 +335,21 @@ ${runnerDisplay}                                                             │
         const startTime = Date.now();
         this.log('🤖 Starting AI-powered ARC installation (Heavy Lifter mode)');
 
-        // Merge environment variables with options
+        // Enhanced organization resolution with git repository detection
+        const gitDetector = new GitRepositoryDetector(this.logger);
+        const resolvedOrganization = await gitDetector.resolveGitHubOrganization(
+            options.organizationName, 
+            'default-org'
+        );
+
+        // Merge environment variables with options, ensuring GITHUB_ORG takes precedence
         const mergedOptions: InstallationOptions = {
             githubToken: options.githubToken || process.env.GITHUB_TOKEN,
-            organizationName: options.organizationName || process.env.GITHUB_ORG,
+            organizationName: resolvedOrganization,
             ...options
         };
+
+        this.log(`📋 Using GitHub organization: ${mergedOptions.organizationName}`);
 
         try {
             // Phase 1: Prerequisites Validation

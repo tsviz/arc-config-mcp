@@ -8,6 +8,7 @@
 import type { ServiceContext } from '../types/arc.js';
 import { createProgressReporter, formatProgressForChat, ChatAwareLogger, type ProgressUpdate } from '../utils/progress-reporter.js';
 import { EnhancedArcInstaller } from '../services/arc-installer-enhanced.js';
+import { GitRepositoryDetector } from '../utils/git-repository-detector.js';
 import { z } from 'zod';
 
 /**
@@ -409,8 +410,8 @@ To deploy 20 runners with auto-scaling, you can say:
     server.registerTool(
         'arc_process_natural_language',
         {
-            title: 'Process Natural Language ARC Commands',
-            description: 'Process natural language commands for ARC operations with intelligent interpretation',
+            title: 'Process Complex ARC Queries',
+            description: 'Handle complex or ambiguous ARC-related queries that require interpretation and analysis.',
             inputSchema: {
                 query: z.string().describe("Natural language command or query")
             }
@@ -453,9 +454,11 @@ To deploy 20 runners with auto-scaling, you can say:
         'arc_scale_runners',
         {
             title: 'Scale ARC Runners',
-            description: 'Scale GitHub Actions runners with intelligent recommendations',
+            description: 'Scale GitHub Actions runners with intelligent cost and performance recommendations.',
             inputSchema: {
-                replicas: z.number().describe("Target number of runner replicas"),
+                minReplicas: z.number().optional().describe("Minimum number of runners for auto-scaling"),
+                maxReplicas: z.number().optional().describe("Maximum number of runners for auto-scaling"),
+                replicas: z.number().optional().describe("Fixed number of runners (used when not auto-scaling)"),
                 runnerName: z.string().optional().describe("Name of specific runner deployment to scale"),
                 namespace: z.string().optional().describe("Kubernetes namespace (defaults to arc-systems)")
             }
@@ -463,38 +466,167 @@ To deploy 20 runners with auto-scaling, you can say:
         async (params: any) => {
             services.logger.info('🔄 Scaling ARC runners with AI optimization', params);
             
-            const result = {
-                success: true,
-                currentReplicas: 2,
-                targetReplicas: params.replicas,
-                message: `Successfully scaled ${params.scaleSetName || 'default runners'} to ${params.replicas} replicas`,
-                aiRecommendation: params.replicas > 10 ? 
-                    '💡 Consider using multiple smaller scale sets for better resource distribution' :
-                    '✅ Optimal scaling configuration detected',
-                estimatedCost: calculateEstimatedCost(params.replicas),
-                timeline: `Scaling will complete in approximately ${Math.ceil(params.replicas * 0.5)} minutes`
-            };
+            // IMMEDIATE OVERRIDE: Force GITHUB_ORG before any other processing
+            if (process.env.GITHUB_ORG) {
+                const originalOrg = params.organization;
+                params.organization = process.env.GITHUB_ORG;
+                services.logger.info(`IMMEDIATE OVERRIDE: organization "${originalOrg}" → "${process.env.GITHUB_ORG}" (GITHUB_ORG takes absolute precedence)`);
+            }
             
-            let scalingContent = `# 🔄 Runner Scaling Operation\n\n`;
-            scalingContent += `**Scale Set:** ${params.scaleSetName || 'default-runners'}\n`;
-            scalingContent += `**Current Replicas:** ${result.currentReplicas}\n`;
-            scalingContent += `**Target Replicas:** ${result.targetReplicas}\n`;
-            scalingContent += `**Status:** ${result.success ? '✅ Success' : '❌ Failed'}\n\n`;
-            scalingContent += `## 🧠 AI Analysis\n\n`;
-            scalingContent += `**Recommendation:** ${result.aiRecommendation}\n`;
-            scalingContent += `**Estimated Cost:** ${result.estimatedCost}\n`;
-            scalingContent += `**Timeline:** ${result.timeline}\n\n`;
-            scalingContent += `**Message:** ${result.message}`;
+            // VALIDATION: Detect and fix incorrect parameter usage for scaling
+            if (params.replicas && !params.minReplicas && !params.maxReplicas) {
+                services.logger.warn(`⚠️ Detected potential min/max misinterpretation in scaling. Using replicas=${params.replicas} as maxReplicas, calculating minReplicas`);
+                params.maxReplicas = params.replicas;
+                params.minReplicas = Math.max(1, Math.floor(params.replicas * 0.6)); // Use 60% as min
+                delete params.replicas; // Remove the incorrect parameter
+            }
             
-            return {
-                content: [
-                    {
-                        type: 'text', 
-                        text: scalingContent
+            services.logger.info('✅ Validated scaling parameters', params);
+            
+            try {
+                // Get current AutoscalingRunnerSets
+                const namespace = params.namespace || 'arc-systems';
+                const runnerName = params.runnerName;
+                
+                let autoscalingRunnerSets;
+                if (runnerName) {
+                    // Scale specific runner set
+                    autoscalingRunnerSets = await services.installer.commandExecutor.kubectl(
+                        `get autoscalingrunnersets ${runnerName} -n ${namespace} -o json`
+                    );
+                } else {
+                    // Get all runner sets and scale the first one found
+                    autoscalingRunnerSets = await services.installer.commandExecutor.kubectl(
+                        `get autoscalingrunnersets -n ${namespace} -o json`
+                    );
+                }
+                
+                const arsData = JSON.parse(autoscalingRunnerSets.stdout);
+                let targetRunnerSet;
+                
+                if (arsData.items && arsData.items.length > 0) {
+                    // Multiple runner sets - use first one if no specific name provided
+                    targetRunnerSet = arsData.items[0];
+                } else if (arsData.metadata) {
+                    // Single runner set
+                    targetRunnerSet = arsData;
+                } else {
+                    throw new Error('No AutoscalingRunnerSets found in namespace ' + namespace);
+                }
+                
+                const currentRunnerSetName = targetRunnerSet.metadata.name;
+                const currentMinRunners = targetRunnerSet.spec.minRunners || 0;
+                const currentMaxRunners = targetRunnerSet.spec.maxRunners || 1;
+                
+                // Determine new scaling configuration
+                let newMinRunners, newMaxRunners;
+                
+                if (params.minReplicas !== undefined && params.maxReplicas !== undefined) {
+                    // Both min and max specified
+                    newMinRunners = params.minReplicas;
+                    newMaxRunners = params.maxReplicas;
+                } else if (params.replicas) {
+                    // Single replica count - set as max, calculate min
+                    newMaxRunners = params.replicas;
+                    newMinRunners = Math.max(1, Math.floor(params.replicas * 0.6));
+                } else if (params.minReplicas !== undefined) {
+                    // Only min specified, keep current max or increase if needed
+                    newMinRunners = params.minReplicas;
+                    newMaxRunners = Math.max(currentMaxRunners, params.minReplicas);
+                } else if (params.maxReplicas !== undefined) {
+                    // Only max specified, keep current min or decrease if needed
+                    newMaxRunners = params.maxReplicas;
+                    newMinRunners = Math.min(currentMinRunners, params.maxReplicas);
+                } else {
+                    throw new Error('No scaling parameters provided. Specify replicas, minReplicas, maxReplicas, or both min/max.');
+                }
+                
+                services.logger.info(`Scaling ${currentRunnerSetName}: ${currentMinRunners}-${currentMaxRunners} → ${newMinRunners}-${newMaxRunners}`);
+                
+                // Apply the scaling using kubectl patch
+                const patchData = {
+                    spec: {
+                        minRunners: newMinRunners,
+                        maxRunners: newMaxRunners
                     }
-                ],
-                structuredContent: result
-            };
+                };
+                
+                await services.installer.commandExecutor.kubectl(
+                    `patch autoscalingrunnersets ${currentRunnerSetName} -n ${namespace} --type merge -p '${JSON.stringify(patchData)}'`
+                );
+                
+                // Wait a moment and get current status
+                await new Promise(resolve => setTimeout(resolve, 2000));
+                
+                // Get current pod count
+                const pods = await services.installer.commandExecutor.kubectl(
+                    `get pods -n ${namespace} -l app.kubernetes.io/name=gha-runner-scale-set -o json`
+                );
+                const podData = JSON.parse(pods.stdout);
+                const currentReplicas = podData.items ? podData.items.length : 0;
+                
+                const result = {
+                    success: true,
+                    runnerSetName: currentRunnerSetName,
+                    currentReplicas,
+                    previousConfig: {
+                        minRunners: currentMinRunners,
+                        maxRunners: currentMaxRunners
+                    },
+                    newConfig: {
+                        minRunners: newMinRunners,
+                        maxRunners: newMaxRunners
+                    },
+                    autoscalingEnabled: true,
+                    message: `Successfully updated ${currentRunnerSetName} scaling: min=${newMinRunners}, max=${newMaxRunners}`,
+                    aiRecommendation: newMaxRunners > 20 ? 
+                        '💡 Consider monitoring resource usage with this scale' :
+                        '✅ Optimal scaling configuration applied',
+                    estimatedCost: calculateEstimatedCost(newMaxRunners),
+                    timeline: `Scaling changes will take effect within 1-2 minutes`
+                };
+                
+                let scalingContent = `# 🔄 Runner Scaling Operation Complete\n\n`;
+                scalingContent += `**Runner Set:** ${currentRunnerSetName}\n`;
+                scalingContent += `**Namespace:** ${namespace}\n`;
+                scalingContent += `**Current Active Pods:** ${currentReplicas}\n`;
+                scalingContent += `**Previous Range:** ${currentMinRunners} - ${currentMaxRunners} runners\n`;
+                scalingContent += `**New Range:** ${newMinRunners} - ${newMaxRunners} runners\n`;
+                scalingContent += `**Status:** ✅ Successfully updated\n\n`;
+                scalingContent += `## 🧠 AI Analysis\n\n`;
+                scalingContent += `**Recommendation:** ${result.aiRecommendation}\n`;
+                scalingContent += `**Estimated Cost:** ${result.estimatedCost}\n`;
+                scalingContent += `**Timeline:** ${result.timeline}\n\n`;
+                scalingContent += `**Note:** The autoscaler will adjust the actual number of runners based on workload demand within the new ${newMinRunners}-${newMaxRunners} range.`;
+                
+                return {
+                    content: [{ type: 'text', text: scalingContent }],
+                    structuredContent: result
+                };
+                
+            } catch (error) {
+                const errorMessage = error instanceof Error ? error.message : String(error);
+                services.logger.error('Scaling failed:', errorMessage);
+                
+                const result = {
+                    success: false,
+                    error: errorMessage,
+                    message: `Scaling failed: ${errorMessage}`
+                };
+                
+                let errorContent = `# ❌ Runner Scaling Failed\n\n`;
+                errorContent += `**Error:** ${errorMessage}\n\n`;
+                errorContent += `## 🔧 Troubleshooting Steps:\n\n`;
+                errorContent += `1. **Check if AutoscalingRunnerSets exist:** \`kubectl get autoscalingrunnersets -n arc-systems\`\n`;
+                errorContent += `2. **Verify namespace:** Ensure the runners are in the correct namespace\n`;
+                errorContent += `3. **Check permissions:** Ensure kubectl has permissions to modify AutoscalingRunnerSets\n`;
+                errorContent += `4. **View logs:** Check ARC controller logs for more details\n`;
+                
+                return {
+                    content: [{ type: 'text', text: errorContent }],
+                    structuredContent: result
+                };
+            }
         }
     );
 
@@ -867,19 +999,42 @@ To deploy 20 runners with auto-scaling, you can say:
 
     // Enhanced runner deployment tool
     server.registerTool(
-        'arc_deploy_runners',
+        'deploy_github_runners',
         {
-            title: 'Deploy ARC Runners with Real-time Progress',
-            description: 'Deploy GitHub Actions runners with AI optimization and live status updates',
+            title: 'Deploy GitHub Runners with Auto-scaling',
+            description: 'Deploy GitHub Actions runners with configurable auto-scaling. Supports setting minimum and maximum replica counts for optimal resource management.',
             inputSchema: {
+                minReplicas: z.number().optional().describe("Minimum number of runners (for auto-scaling)"),
+                maxReplicas: z.number().optional().describe("Maximum number of runners (for auto-scaling)"),
                 organization: z.string().optional().describe("GitHub organization name"),
-                replicas: z.number().optional().describe("Number of runner replicas to deploy"),
+                replicas: z.number().optional().describe("Fixed number of runners (when not using auto-scaling)"),
                 runnerName: z.string().optional().describe("Custom name for the runner deployment"),
-                namespace: z.string().optional().describe("Kubernetes namespace (defaults to arc-systems)")
+                namespace: z.string().optional().describe("Kubernetes namespace (defaults to arc-systems)"),
+                autoscaling: z.boolean().optional().describe("Enable auto-scaling (automatically enabled when min/max specified)")
             }
         },
         async (params: any) => {
             let progressUpdates: string[] = [];
+            
+            // IMMEDIATE OVERRIDE: Force GITHUB_ORG before any other processing
+            if (process.env.GITHUB_ORG) {
+                const originalOrg = params.organization;
+                params.organization = process.env.GITHUB_ORG;
+                services.logger.info(`IMMEDIATE OVERRIDE: organization "${originalOrg}" → "${process.env.GITHUB_ORG}" (GITHUB_ORG takes absolute precedence)`);
+            }
+            
+            // VALIDATION: Detect and fix incorrect parameter usage
+            services.logger.info('Validating deployment parameters', params);
+            
+            // Detect min/max from replicas parameter (common Copilot mistake)
+            if (params.replicas && !params.minReplicas && !params.maxReplicas) {
+                services.logger.warn(`⚠️ Detected potential min/max misinterpretation. Using replicas=${params.replicas} as maxReplicas, calculating minReplicas`);
+                params.maxReplicas = params.replicas;
+                params.minReplicas = Math.max(1, Math.floor(params.replicas * 0.6)); // Use 60% as min
+                delete params.replicas; // Remove the incorrect parameter
+            }
+            
+            services.logger.info('✅ Validated parameters', params);
             
             const progressReporter = createProgressReporter(
                 (update: ProgressUpdate) => {
@@ -904,24 +1059,28 @@ To deploy 20 runners with auto-scaling, you can say:
                 });
                 
                 // Enhanced organization validation and auto-detection
-                // Priority: 1) Environment variable (if set), 2) Explicit parameter, 3) Auto-detection, 4) Fallback
-                let organization = process.env.GITHUB_ORG || params.organization;
+                // ABSOLUTE PRIORITY: GITHUB_ORG environment variable overrides everything
+                let organization;
                 
-                // Debug logging to track organization resolution
-                services.logger.info(`Organization resolution: GITHUB_ORG="${process.env.GITHUB_ORG}", params.organization="${params.organization}", resolved="${organization}"`);
-                
-                // FIXED: Environment variable should always take precedence when set
-                if (process.env.GITHUB_ORG && params.organization && process.env.GITHUB_ORG !== params.organization) {
-                    services.logger.warn(`Parameter organization "${params.organization}" overridden by environment variable GITHUB_ORG="${process.env.GITHUB_ORG}"`);
+                if (process.env.GITHUB_ORG) {
                     organization = process.env.GITHUB_ORG;
+                    services.logger.info(`🔒 FORCING organization from GITHUB_ORG: ${organization} (ignoring local configs, existing deployments, and repo context)`);
+                } else {
+                    // Only use auto-detection if GITHUB_ORG is not set
+                    const gitDetector = new GitRepositoryDetector(services.logger);
+                    organization = await gitDetector.resolveGitHubOrganization(params.organization);
+                    services.logger.info(`📍 Auto-detected organization: ${organization}`);
                 }
                 
-                // If no organization specified, try to detect from existing working deployments
-                if (!organization) {
+                // Debug logging to track organization resolution
+                services.logger.info(`Organization resolution complete: GITHUB_ORG="${process.env.GITHUB_ORG}", params.organization="${params.organization}", final="${organization}"`);
+                
+                // Skip existing deployment detection if GITHUB_ORG is set
+                if (!process.env.GITHUB_ORG && (!organization && !process.env.GITHUB_ORG)) {
                     progressReporter.updateProgress({
                         phase: 'Organization Detection',
                         progress: 5,
-                        message: 'Auto-detecting GitHub organization...',
+                        message: 'Auto-detecting GitHub organization from existing deployments...',
                         timestamp: new Date().toISOString(),
                         aiInsight: 'Scanning existing runner deployments for organization hints'
                     });
@@ -935,16 +1094,16 @@ To deploy 20 runners with auto-scaling, you can say:
                         if (existingDeployments.stdout.trim()) {
                             const urls = existingDeployments.stdout.trim().split(' ').filter(Boolean);
                             const firstUrl = urls[0]; // e.g., "https://github.com/tsvi-solutions"
-                            organization = firstUrl.split('/').pop(); // Extract organization name
-                            services.logger.info(`Auto-detected organization: ${organization}`);
+                            const detectedOrg = firstUrl.split('/').pop(); // Extract organization name
+                            if (detectedOrg && organization === 'tsvi-solutions') {
+                                organization = detectedOrg;
+                                services.logger.info(`Auto-detected organization from existing deployments: ${organization}`);
+                            }
                         }
                     } catch (e) {
-                        services.logger.warn('Could not auto-detect organization, using default');
+                        services.logger.warn('Could not auto-detect organization from existing deployments, using resolved value');
                     }
                 }
-                
-                // Final fallback
-                organization = organization || 'tsvi-solutions';
                 
                 // Default to 20 replicas (better for high workload capacity), but allow user to specify different amounts
                 const replicas = Math.max(params.replicas || 20, 20);
@@ -975,8 +1134,8 @@ To deploy 20 runners with auto-scaling, you can say:
                     },
                     spec: {
                         // Use minRunners/maxRunners for modern autoscaling
-                        minRunners: Math.max(1, Math.floor(replicas / 4)),
-                        maxRunners: replicas,
+                        minRunners: params.minReplicas || Math.max(1, Math.floor(replicas / 4)),
+                        maxRunners: params.maxReplicas || replicas,
                         githubConfigUrl: `https://github.com/${organization}`,
                         githubConfigSecret: 'controller-manager',
                         runnerGroup: 'default',
@@ -1061,8 +1220,8 @@ To deploy 20 runners with auto-scaling, you can say:
                 });
                 
                 // Use the official ARC Helm chart for proper deployment
-                const minRunners = Math.max(1, Math.floor(replicas / 4));
-                const maxRunners = replicas;
+                const minRunners = params.minReplicas || Math.max(1, Math.floor(replicas / 4));
+                const maxRunners = params.maxReplicas || replicas;
                 
                 // Get GitHub token from environment or services
                 const githubToken = process.env.GITHUB_TOKEN || services.installer?.github?.token || '';
@@ -1110,9 +1269,9 @@ To deploy 20 runners with auto-scaling, you can say:
                     aiInsight: 'Runners are registering with GitHub and ready for workflows'
                 });
                 
-                // Calculate autoscaling ranges: min = user's replicas (minimum 20), max = 2x or at least 40
-                const minReplicas = replicas;
-                const maxReplicas = Math.max(replicas * 2, 40);
+                // Calculate autoscaling ranges: use explicit values if provided, otherwise calculate
+                const minReplicas = params.minReplicas || replicas;
+                const maxReplicas = params.maxReplicas || Math.max(replicas * 2, 40);
                 
                 const result = {
                     success: true,
@@ -1221,11 +1380,26 @@ To deploy 20 runners with auto-scaling, you can say:
                     let pods = [];
                     
                     try {
-                        const autoscalingResult = await services.installer.commandExecutor.kubectl(`get autoscalingrunnersets -n ${namespace} -o json`);
-                        const autoscalingData = JSON.parse(autoscalingResult.stdout);
-                        runnerDeployments = autoscalingData.items || [];
+                        // Since we deploy using Helm, check for Helm releases instead of direct autoscalingrunnersets
+                        const helmResult = await services.installer.commandExecutor.helm(`list -n ${namespace} -o json`);
+                        const helmData = JSON.parse(helmResult.stdout);
+                        runnerDeployments = helmData.filter((release: any) => 
+                            release.name.includes('runner') || release.chart.includes('gha-runner')
+                        ) || [];
+                        
+                        // If we have Helm releases, try to get the actual autoscaling runner sets
+                        if (runnerDeployments.length > 0) {
+                            try {
+                                const autoscalingResult = await services.installer.commandExecutor.kubectl(`get autoscalingrunnersets -n ${namespace} -o json`);
+                                const autoscalingData = JSON.parse(autoscalingResult.stdout);
+                                // Merge Helm data with Kubernetes data for complete picture
+                                runnerDeployments = autoscalingData.items || runnerDeployments;
+                            } catch (k8sError) {
+                                services.logger.info('Using Helm release data since autoscalingrunnersets API not available');
+                            }
+                        }
                     } catch (error) {
-                        services.logger.warn('Could not get autoscaling runner sets', { error });
+                        services.logger.warn('Could not get runner deployments', { error });
                     }
                     
                     try {
@@ -1331,6 +1505,9 @@ To deploy 20 runners with auto-scaling, you can say:
             }
         }
     );
+    
+    // Note: Removed arc_deploy_autoscaling_runners tool due to API endpoint conflicts
+    // The main arc_deploy_runners tool handles all deployment scenarios correctly
 
     services.logger.info('Enhanced ARC MCP tools registered with real-time progress capabilities');
 }
@@ -1625,18 +1802,65 @@ async function processNaturalLanguageQuery(query: string, services: ServiceConte
         };
     }
 
-    if (lowercaseQuery.includes('scale') && lowercaseQuery.includes('runner')) {
-        const numbers = query.match(/\d+/);
-        const replicas = numbers ? parseInt(numbers[0]) : 2;
+    if ((lowercaseQuery.includes('scale') || lowercaseQuery.includes('deploy')) && lowercaseQuery.includes('runner')) {
+        // Handle various range syntax patterns
+        let replicas, minReplicas, maxReplicas;
+        
+        // Pattern 1: "X-Y" range syntax (e.g., "20-40")
+        const rangeMatch = query.match(/(\d+)\s*-\s*(\d+)/);
+        
+        // Pattern 2: "X min and Y max" syntax (e.g., "25 runners min and 40 max")
+        const minMaxMatch = query.match(/(\d+).*min.*and.*(\d+).*max|(\d+).*min.*(\d+).*max/i);
+        
+        // Pattern 3: Individual min/max patterns
+        const minMatch = query.match(/(\d+).*min/i);
+        const maxMatch = query.match(/(\d+).*max/i);
+        
+        // Pattern 4: Single number
+        const singleMatch = query.match(/\d+/);
+        
+        if (rangeMatch) {
+            // Range syntax detected (e.g., "20-40")
+            minReplicas = parseInt(rangeMatch[1]);
+            maxReplicas = parseInt(rangeMatch[2]);
+            replicas = maxReplicas; // Use max as target for compatibility
+        } else if (minMaxMatch) {
+            // Min/max syntax detected (e.g., "25 min and 40 max")
+            if (minMaxMatch[1] && minMaxMatch[2]) {
+                minReplicas = parseInt(minMaxMatch[1]);
+                maxReplicas = parseInt(minMaxMatch[2]);
+            } else if (minMaxMatch[3] && minMaxMatch[4]) {
+                minReplicas = parseInt(minMaxMatch[3]);
+                maxReplicas = parseInt(minMaxMatch[4]);
+            }
+            replicas = maxReplicas; // Use max as target for compatibility
+        } else if (minMatch || maxMatch) {
+            // Individual min or max specified
+            if (minMatch) minReplicas = parseInt(minMatch[1]);
+            if (maxMatch) maxReplicas = parseInt(maxMatch[1]);
+            replicas = maxReplicas || minReplicas || 2;
+        } else if (singleMatch) {
+            // Single number detected
+            replicas = parseInt(singleMatch[0]);
+        } else {
+            replicas = 2; // Default fallback
+        }
+        
         return {
             action: 'scale_runners',
             parameters: { 
                 replicas, 
+                minReplicas,
+                maxReplicas,
                 scaleSetName: extractScaleSetName(query) || 'default-runners',
                 aiOptimized: true
             },
             confidence: 0.9,
-            interpretation: `User wants to scale runners to ${replicas} replicas with AI optimization`,
+            interpretation: (minReplicas && maxReplicas) ? 
+                `User wants autoscaling with min: ${minReplicas}, max: ${maxReplicas} runners` :
+                rangeMatch ? 
+                    `User wants autoscaling range of ${minReplicas}-${maxReplicas} runners` :
+                    `User wants to scale runners to ${replicas} replicas with AI optimization`,
             suggestion: `This will scale your runners and provide cost and performance recommendations`
         };
     }
