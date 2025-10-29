@@ -25,7 +25,8 @@ RUN apk add --no-cache \
     wget \
     git \
     bash \
-    ca-certificates
+    ca-certificates \
+    openssl
 
 # Set architecture variables for multi-platform builds
 ARG TARGETPLATFORM
@@ -41,13 +42,8 @@ RUN case "${TARGETARCH}" in \
     && wget -q https://dl.k8s.io/release/$(wget -qO- https://dl.k8s.io/release/stable.txt)/bin/linux/${KUBECTL_ARCH}/kubectl -O /usr/local/bin/kubectl \
     && chmod +x /usr/local/bin/kubectl
 
-# Install helm with curl (more reliable)
-RUN case "${TARGETARCH}" in \
-    amd64) HELM_ARCH=amd64 ;; \
-    arm64) HELM_ARCH=arm64 ;; \
-    *) echo "Unsupported architecture: ${TARGETARCH}" && exit 1 ;; \
-    esac \
-    && curl -fsSL https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | DESIRED_VERSION=v3.15.4 bash
+# Install helm via Alpine packages (most reliable)
+RUN apk add --no-cache helm
 
 # Verify installations
 RUN helm version && kubectl version --client
