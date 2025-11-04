@@ -1144,8 +1144,6 @@ export ARC_POLICY_CATEGORIES="security,compliance"  # Focus on specific categori
 
 ---
 
-## 📊 Monitoring & Observability
-````
 
 ## 📊 Monitoring & Observability
 
