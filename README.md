@@ -11,7 +11,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.0+-blue.svg)](https://www.typescriptlang.org/)
 
-**📚 Quick Links**: [Installation](#-quick-start) • [Policy Validation Guide](docs/POLICY_VALIDATION_GUIDE.md) • [Policy Rule Integration](docs/POLICY_RULE_INTEGRATION.md) • [Hybrid Workflows](docs/HYBRID_WORKFLOW_CLARITY.md) • [Tool Catalog](#%EF%B8%8F-complete-tool-catalog) • [Roadmap](ROADMAP.md) • [Contributing](#%F0%9F%A4%9D-contributing)
+**📚 Quick Links**: [Installation](#-quick-start) • [Policy Validation Guide](docs/POLICY_VALIDATION_GUIDE.md) • [Policy Rule Integration](docs/POLICY_RULE_INTEGRATION.md) • [Hybrid Workflows](docs/HYBRID_WORKFLOW_CLARITY.md) • [Tool Catalog](#%EF%B8%8F-complete-tool-catalog) • [Roadmap](ROADMAP.md) • [Contributing](#-contributing)
 
 ## 🎯 What is ARC Config MCP Server?
 
