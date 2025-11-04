@@ -9,7 +9,7 @@ This comprehensive guide covers everything you need to know about using the ARC 
 - [Overview](#-overview)
 - [Quick Start](#-quick-start)
 - [Understanding Policy Categories](#-understanding-policy-categories)
-- [Using the Tool](#-using-the-tool)
+- [Using the Tool](#%EF%B8%8F-using-the-tool)
 - [Auto-Fix Features](#-auto-fix-features)
 - [Real-World Workflows](#-real-world-workflows)
 - [Best Practices](#-best-practices)
