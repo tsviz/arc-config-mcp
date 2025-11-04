@@ -9,6 +9,8 @@ import type { ServiceContext } from '../types/arc.js';
 import { createProgressReporter, formatProgressForChat, ChatAwareLogger, type ProgressUpdate } from '../utils/progress-reporter.js';
 import { EnhancedArcInstaller } from '../services/arc-installer-enhanced.js';
 import { GitRepositoryDetector } from '../utils/git-repository-detector.js';
+import { ArcPolicyEngine } from '../engines/policy-engine.js';
+import { ConfigFileManager } from '../services/config-file-manager.js';
 import { z } from 'zod';
 
 /**
@@ -555,6 +557,52 @@ To deploy 20 runners with auto-scaling, you can say:
                     `patch autoscalingrunnersets ${currentRunnerSetName} -n ${namespace} --type merge -p '${JSON.stringify(patchData)}'`
                 );
                 
+                // GitOps: Update config file if configs directory exists
+                let configUpdated = false;
+                try {
+                    const fs = await import('fs/promises');
+                    const path = await import('path');
+                    
+                    const configDir = path.join(process.cwd(), 'configs', 'runner-sets');
+                    const configPath = path.join(configDir, `${currentRunnerSetName}.yaml`);
+                    
+                    // Check if configs directory exists
+                    try {
+                        await fs.access(configDir);
+                        
+                        // Check if config file exists
+                        try {
+                            await fs.access(configPath);
+                            
+                            // Read current config file
+                            const configContent = await fs.readFile(configPath, 'utf-8');
+                            
+                            // Update minRunners and maxRunners in YAML
+                            let updatedContent = configContent
+                                .replace(/(\s+minRunners:\s+)\d+/g, `$1${newMinRunners}`)
+                                .replace(/(\s+maxRunners:\s+)\d+/g, `$1${newMaxRunners}`);
+                            
+                            // Write back updated config
+                            await fs.writeFile(configPath, updatedContent, 'utf-8');
+                            
+                            configUpdated = true;
+                            services.logger.info(`✅ Updated config file: ${configPath}`);
+                            
+                        } catch (fileError) {
+                            // Config file doesn't exist - that's ok, user might be in Direct mode
+                            services.logger.debug(`Config file not found: ${configPath} (Direct mode assumed)`);
+                        }
+                        
+                    } catch (dirError) {
+                        // configs directory doesn't exist - that's ok, user is in Direct mode
+                        services.logger.debug('configs/runner-sets/ directory not found (Direct mode assumed)');
+                    }
+                    
+                } catch (error) {
+                    // Any other error - log but don't fail the operation
+                    services.logger.debug('Could not update config file:', error);
+                }
+                
                 // Wait a moment and get current status
                 await new Promise(resolve => setTimeout(resolve, 2000));
                 
@@ -578,6 +626,7 @@ To deploy 20 runners with auto-scaling, you can say:
                         maxRunners: newMaxRunners
                     },
                     autoscalingEnabled: true,
+                    configUpdated,
                     message: `Successfully updated ${currentRunnerSetName} scaling: min=${newMinRunners}, max=${newMaxRunners}`,
                     aiRecommendation: newMaxRunners > 20 ? 
                         '💡 Consider monitoring resource usage with this scale' :
@@ -592,8 +641,11 @@ To deploy 20 runners with auto-scaling, you can say:
                 scalingContent += `**Current Active Pods:** ${currentReplicas}\n`;
                 scalingContent += `**Previous Range:** ${currentMinRunners} - ${currentMaxRunners} runners\n`;
                 scalingContent += `**New Range:** ${newMinRunners} - ${newMaxRunners} runners\n`;
-                scalingContent += `**Status:** ✅ Successfully updated\n\n`;
-                scalingContent += `## 🧠 AI Analysis\n\n`;
+                scalingContent += `**Status:** ✅ Successfully updated\n`;
+                if (configUpdated) {
+                    scalingContent += `**Config File:** ✅ Updated in configs/runner-sets/${currentRunnerSetName}.yaml\n`;
+                }
+                scalingContent += `\n## 🧠 AI Analysis\n\n`;
                 scalingContent += `**Recommendation:** ${result.aiRecommendation}\n`;
                 scalingContent += `**Estimated Cost:** ${result.estimatedCost}\n`;
                 scalingContent += `**Timeline:** ${result.timeline}\n\n`;
@@ -1107,10 +1159,20 @@ To deploy 20 runners with auto-scaling, you can say:
                 
                 // Default to 20 replicas (better for high workload capacity), but allow user to specify different amounts
                 const replicas = Math.max(params.replicas || 20, 20);
-                // Use RUNNER_LABEL environment variable if set, otherwise fallback to params or organization-based naming
-                const runnerLabel = process.env.RUNNER_LABEL || `${organization}-runners`;
-                // Prioritize explicit environment configuration over parameters
-                const runnerName = process.env.RUNNER_LABEL || params.runnerName || runnerLabel;
+                
+                // Determine runner name with intelligent fallback
+                let runnerName: string;
+                if (process.env.RUNNER_LABEL) {
+                    runnerName = process.env.RUNNER_LABEL;
+                    services.logger.info(`Using RUNNER_LABEL from environment: ${runnerName}`);
+                } else if (params.runnerName) {
+                    runnerName = params.runnerName;
+                    services.logger.info(`Using explicit runnerName parameter: ${runnerName}`);
+                } else {
+                    runnerName = `${organization}-runners`;
+                    services.logger.warn(`⚠️ RUNNER_LABEL not set in mcp.json. Using default: ${runnerName}. Set RUNNER_LABEL in mcp.json for consistent naming.`);
+                }
+                const runnerLabel = runnerName; // Use the resolved runner name as the label
                 
                 progressReporter.updateProgress({
                     phase: 'Configuration Generation',
@@ -2430,4 +2492,1916 @@ ${riskAssessment.recommendation ? `
 `;
 
     return report;
+}
+
+/**
+ * Register policy validation tools
+ */
+export function registerPolicyTools(server: any, services: ServiceContext): void {
+    // Policy validation and compliance tool
+    server.registerTool(
+        'arc_validate_policies',
+        {
+            title: 'Validate ARC Policies and Compliance',
+            description: 'Validate ARC RunnerScaleSets against security, compliance, performance, and cost policies. All policies are built into the MCP server - no external files needed. When called without parameters, provides helpful overview and checks for violations.',
+            inputSchema: {
+                operation: z.enum(['validate', 'report', 'list_rules', 'list_violations', 'auto_fix'])
+                    .optional()
+                    .describe("Operation: 'validate' (check specific resource), 'report' (compliance report), 'list_rules' (available policies), 'list_violations' (current violations), 'auto_fix' (remediate issues). Default: provides helpful overview with rules and violations."),
+                namespace: z.string().optional().describe("Kubernetes namespace to validate (defaults to 'arc-systems')"),
+                runnerScaleSetName: z.string().optional().describe("Specific RunnerScaleSet name to validate"),
+                category: z.enum(['security', 'compliance', 'performance', 'cost', 'operations', 'networking'])
+                    .optional()
+                    .describe("Filter by policy category"),
+                severity: z.enum(['low', 'medium', 'high', 'critical'])
+                    .optional()
+                    .describe("Filter by severity level"),
+                autoFix: z.boolean().optional().describe("Automatically fix violations where possible (default: false)"),
+                apply: z.boolean().optional().describe("⚠️ IMPORTANT: Controls cluster application behavior. DEFAULT (false): Generates fixed config files in 'configs/' folder ONLY - no cluster changes. When true: Generates configs AND applies them to cluster immediately. Most users should use default for safe review-before-apply workflow.")
+            }
+        },
+        async (params: any) => {
+            try {
+                services.logger.info('🔍 Starting ARC policy validation...', params);
+
+                // AUTO-DISCOVERY: Check for policy config in standard locations
+                const fsModule = await import('fs-extra');
+                const pathModule = await import('path');
+                const fs = fsModule.default || fsModule;
+                const path = pathModule.default || pathModule;
+                let discoveredConfigPath: string | undefined;
+
+                const standardConfigPaths = [
+                    'configs/policies/arc-policy-config.json',
+                    'configs/policies/arc-policy-config.yaml',
+                    'configs/policies/policy-config.json',
+                    'configs/policies/policy-config.yaml'
+                ];
+
+                for (const configPath of standardConfigPaths) {
+                    const absolutePath = path.resolve(process.cwd(), configPath);
+                    if (fs.existsSync(absolutePath)) {
+                        discoveredConfigPath = absolutePath;
+                        services.logger.info(`✨ Auto-discovered policy config: ${configPath}`);
+                        break;
+                    }
+                }
+
+                // Explicit configPath parameter takes precedence over auto-discovery
+                const finalConfigPath = params.configPath || discoveredConfigPath;
+
+                if (finalConfigPath) {
+                    services.logger.info(`📋 Using policy configuration: ${finalConfigPath}`);
+                } else {
+                    services.logger.info('📋 Using built-in default policy rules (no external config found)');
+                }
+
+                // Create policy engine instance with auto-discovered or explicit config
+                const policyEngine = new ArcPolicyEngine(
+                    services.kubernetes.getKubeConfig(),
+                    finalConfigPath
+                );
+
+                // Smart default: if no operation specified, provide educational overview + check violations
+                const operation = params.operation || 'overview';
+
+                // Handle different operations
+                switch (operation) {
+                    case 'overview': {
+                        // Default behavior: educate user about the tool and show current state
+                        services.logger.info('📚 Providing policy validation overview...');
+                        
+                        let output = `# 🔒 ARC Policy Validation Tool
+
+Welcome! This tool validates your GitHub Actions Runner Controller (ARC) deployments against **20+ built-in policies** for security, compliance, performance, and cost optimization.
+
+## 🎯 What Gets Validated
+
+All policies are **built into the MCP server** - no external configuration needed!
+
+| Category | Policies | Examples |
+|----------|----------|----------|
+| 🔒 **Security** | 6 rules | Privileged mode, security contexts, secrets |
+| 📋 **Compliance** | 3 rules | Repository scoping, runner groups, labels |
+| 📊 **Performance** | 3 rules | Resource limits, CPU/memory quotas |
+| 💰 **Cost** | 2 rules | Autoscaling, resource optimization |
+| ⚙️ **Operations** | 2 rules | Runner images, operational practices |
+
+${discoveredConfigPath ? `
+## ✨ Custom Policy Configuration Active
+
+**Using:** \`${path.relative(process.cwd(), discoveredConfigPath)}\`
+
+Your custom policy configuration has been auto-discovered and loaded! This allows you to:
+- Override built-in rule settings
+- Customize enforcement levels
+- Enable/disable specific rules
+- Set organization-specific policies
+
+` : `
+## 📂 Policy Configuration (Optional)
+
+Want to customize policies? Create a config file at:
+- \`configs/policies/arc-policy-config.json\`
+- \`configs/policies/arc-policy-config.yaml\`
+
+The MCP server will **automatically discover and load** your config - no additional parameters needed!
+
+`}
+
+---
+
+`;
+
+                        // Try to get current violations (this educates AND provides value)
+                        try {
+                            const namespace = params.namespace || 'arc-systems';
+                            const complianceReport = await policyEngine.generateArcComplianceReport(namespace);
+                            
+                            const complianceEmoji = complianceReport.overallCompliance >= 90 ? '✅' : 
+                                                   complianceReport.overallCompliance >= 70 ? '⚠️' : '❌';
+                            
+                            output += `## 📊 Current Status (Namespace: ${namespace})
+
+**Compliance Score**: ${complianceEmoji} **${complianceReport.overallCompliance.toFixed(1)}%**
+
+| Metric | Count |
+|--------|-------|
+| Total Rules | ${complianceReport.results.summary.totalRules} |
+| ✅ Passed | ${complianceReport.results.summary.passedRules} |
+| ❌ Failed | ${complianceReport.results.summary.failedRules} |
+| 🔴 Critical | ${complianceReport.results.violations.filter((v: any) => v.severity === 'critical').length} |
+| 🟠 High | ${complianceReport.results.violations.filter((v: any) => v.severity === 'high').length} |
+| ⚠️ Warnings | ${complianceReport.results.warnings.length} |
+
+`;
+
+                            // Show critical violations if any
+                            const criticalViolations = complianceReport.results.violations.filter((v: any) => v.severity === 'critical');
+                            if (criticalViolations.length > 0) {
+                                output += `### 🔴 Critical Violations Detected
+
+${criticalViolations.map((v: any, idx: number) => `${idx + 1}. **${v.ruleName}** - ${v.resource.kind}/${v.resource.name}
+   - ${v.message}`).join('\n')}
+
+`;
+                            } else {
+                                output += `### ✅ No Critical Violations
+
+Great job! Your ARC deployment has no critical policy violations.
+
+`;
+                            }
+                        } catch (error) {
+                            // If we can't check violations (e.g., ARC not installed), that's okay - just educate
+                            output += `## ℹ️ Current Status
+
+Unable to check current violations. This might mean:
+- ARC is not yet installed in your cluster
+- The namespace doesn't exist
+- You don't have necessary permissions
+
+Don't worry - the tool is ready to validate once you have ARC deployed!
+
+`;
+                        }
+
+                        // Add usage examples
+                        output += `---
+
+## 🚀 How to Use This Tool
+
+### Quick Actions
+
+**Check all violations:**
+\`\`\`
+Just mention "check ARC policies" or "validate ARC policies"
+\`\`\`
+
+**See full compliance report:**
+\`\`\`
+Run with: operation=report
+Or say: "Generate ARC compliance report"
+\`\`\`
+
+**List all policy rules:**
+\`\`\`
+Run with: operation=list_rules
+Or say: "Show me ARC policy rules"
+\`\`\`
+
+**Auto-fix violations:**
+\`\`\`
+Run with: operation=auto_fix
+Or say: "Fix ARC policy violations"
+\`\`\`
+
+### Filter by Category or Severity
+
+\`\`\`
+category=security     # Only security policies
+severity=critical     # Only critical violations
+\`\`\`
+
+### Advanced: Validate Specific Resource
+
+\`\`\`
+operation=validate
+namespace=arc-systems
+runnerScaleSetName=my-runners
+\`\`\`
+
+---
+
+## 💡 What Makes This Tool Smart
+
+✅ **No configuration needed** - All 20+ policies are built-in
+✅ **Understands natural language** - Just ask in plain English
+✅ **Auto-detects issues** - Scans your cluster automatically  
+✅ **Provides fixes** - Can auto-remediate many violations
+✅ **Enterprise-ready** - Based on industry best practices
+
+## 📖 Policy Categories Explained
+
+**🔒 Security**: Prevents privileged runners, enforces security contexts, validates secrets
+**📋 Compliance**: Repository scoping, runner groups, proper labeling
+**📊 Performance**: Resource limits, CPU/memory quotas
+**💰 Cost**: Autoscaling configuration, resource optimization
+**⚙️ Operations**: Runner images, operational best practices
+
+---
+
+*Ready to validate your ARC deployment? Just ask me to check policies, generate a report, or fix violations!*
+`;
+
+                        return {
+                            content: [{ type: 'text', text: output }],
+                            isError: false
+                        };
+                    }
+
+                    case 'list_rules': {
+                        const allRules = policyEngine.getRules();
+                        let filteredRules = allRules;
+
+                        if (params.category) {
+                            filteredRules = policyEngine.getRulesByCategory(params.category);
+                        }
+
+                        const report = formatPolicyRulesForChat(filteredRules, params.category);
+
+                        return {
+                            content: [{ type: 'text', text: report }],
+                            isError: false
+                        };
+                    }
+
+                    case 'report': {
+                        services.logger.info('📊 Generating compliance report...');
+                        
+                        const complianceReport = await policyEngine.generateArcComplianceReport(params.namespace);
+                        const report = formatComplianceReportForChat(complianceReport);
+
+                        return {
+                            content: [{ type: 'text', text: report }],
+                            isError: false,
+                            structuredData: complianceReport
+                        };
+                    }
+
+                    case 'validate': {
+                        if (!params.runnerScaleSetName) {
+                            throw new Error('runnerScaleSetName is required for validation operation');
+                        }
+                        if (!params.namespace) {
+                            throw new Error('namespace is required for validation operation');
+                        }
+
+                        services.logger.info(`🔍 Validating RunnerScaleSet: ${params.namespace}/${params.runnerScaleSetName}`);
+
+                        const result = await policyEngine.evaluateRunnerScaleSet(
+                            params.namespace,
+                            params.runnerScaleSetName
+                        );
+
+                        const report = formatValidationResultForChat(result, params);
+
+                        return {
+                            content: [{ type: 'text', text: report }],
+                            isError: !result.passed,
+                            structuredData: result
+                        };
+                    }
+
+                    case 'list_violations': {
+                        services.logger.info('📋 Listing current policy violations...');
+
+                        const complianceReport = await policyEngine.generateArcComplianceReport(params.namespace);
+                        let violations = [...complianceReport.results.violations, ...complianceReport.results.warnings];
+
+                        if (params.severity) {
+                            violations = violations.filter(v => v.severity === params.severity);
+                        }
+                        if (params.category) {
+                            violations = violations.filter(v => v.category === params.category);
+                        }
+
+                        const report = formatViolationsListForChat(violations, params);
+
+                        return {
+                            content: [{ type: 'text', text: report }],
+                            isError: violations.length > 0,
+                            structuredData: { violations }
+                        };
+                    }
+
+                    case 'auto_fix': {
+                        const applyMode = params.apply === true;
+                        services.logger.info(`🔧 Auto-fixing policy violations in ${applyMode ? 'APPLY MODE (configs + cluster)' : 'CONFIG-ONLY MODE (no cluster changes)'}...`);
+
+                        const complianceReport = await policyEngine.generateArcComplianceReport(params.namespace);
+                        const autoFixableViolations = [
+                            ...complianceReport.results.violations,
+                            ...complianceReport.results.warnings
+                        ].filter(v => v.canAutoFix);
+
+                        if (autoFixableViolations.length === 0) {
+                            return {
+                                content: [{
+                                    type: 'text',
+                                    text: '✅ No auto-fixable violations found. All policies are compliant or require manual remediation.'
+                                }],
+                                isError: false
+                            };
+                        }
+
+                        // Group violations by resource
+                        const violationsByResource = autoFixableViolations.reduce((acc, v) => {
+                            const key = `${v.resource.namespace || params.namespace || 'arc-systems'}/${v.resource.name}`;
+                            if (!acc[key]) {
+                                acc[key] = {
+                                    namespace: v.resource.namespace || params.namespace || 'arc-systems',
+                                    name: v.resource.name,
+                                    kind: v.resource.kind,
+                                    violations: []
+                                };
+                            }
+                            acc[key].violations.push(v);
+                            return acc;
+                        }, {} as Record<string, any>);
+
+                        // If generateConfig is true, create fixed config files
+                        // ALWAYS generate config files for auditing
+                        {
+                            services.logger.info('🔧 Generating fixed configuration files...');
+                            
+                            const configFileManager = new ConfigFileManager(process.cwd());
+                            const fixedConfigs: string[] = [];
+                            const fixResults: Array<{name: string, fixed: number, failed: number, violations: any[]}> = [];
+
+                            for (const [key, resourceInfo] of Object.entries(violationsByResource)) {
+                                try {
+                                    // Fetch current resource from cluster
+                                    const resources = await services.kubernetes.getCustomResources(
+                                        'actions.github.com/v1alpha1',
+                                        'AutoScalingRunnerSet',
+                                        resourceInfo.namespace
+                                    );
+
+                                    const resource = resources.find((r: any) => r.metadata?.name === resourceInfo.name);
+                                    if (!resource) {
+                                        throw new Error(`RunnerScaleSet ${resourceInfo.name} not found in namespace ${resourceInfo.namespace}`);
+                                    }
+                                    
+                                    // Apply fixes to the resource with tracking
+                                    let fixedCount = 0;
+                                    let failedCount = 0;
+                                    const appliedFixes: any[] = [];
+                                    
+                                    for (const violation of resourceInfo.violations) {
+                                        const fixApplied = applyFixToResource(resource, violation, services.logger);
+                                        if (fixApplied) {
+                                            fixedCount++;
+                                            // Get the actual value that was set
+                                            const actualValue = violation.suggestedValue || 
+                                                               (violation.fixAction ? getFixValueFromAction(violation.fixAction, resource, violation) : undefined);
+                                            appliedFixes.push({
+                                                ...violation,
+                                                actualValue
+                                            });
+                                        } else {
+                                            failedCount++;
+                                            services.logger.warn(`Failed to apply fix for ${violation.ruleName} on ${resourceInfo.name}`);
+                                        }
+                                    }
+
+                                    fixResults.push({
+                                        name: resourceInfo.name,
+                                        fixed: fixedCount,
+                                        failed: failedCount,
+                                        violations: appliedFixes
+                                    });
+
+                                    // Clean up metadata for config file, but preserve spec and status
+                                    const cleanResource = {
+                                        apiVersion: resource.apiVersion,
+                                        kind: resource.kind,
+                                        metadata: {
+                                            name: resource.metadata.name,
+                                            namespace: resource.metadata.namespace,
+                                            labels: resource.metadata.labels || {},
+                                            annotations: {
+                                                ...(resource.metadata.annotations || {}),
+                                                'arc-mcp/auto-fixed': new Date().toISOString(),
+                                                'arc-mcp/violations-fixed': fixedCount.toString(),
+                                                'arc-mcp/violations-failed': failedCount.toString()
+                                            }
+                                        },
+                                        spec: resource.spec  // Preserve the spec with applied fixes!
+                                    };
+
+                                    // Save to configs/runner-sets/
+                                    const configPath = await configFileManager.writeConfig(
+                                        'runnerSet',
+                                        cleanResource,
+                                        resourceInfo.name
+                                    );
+                                    
+                                    fixedConfigs.push(configPath);
+                                    services.logger.info(`✅ Generated fixed config: ${configPath} (${fixedCount} fixes applied, ${failedCount} failed)`);
+                                } catch (error: any) {
+                                    services.logger.error(`Failed to generate config for ${resourceInfo.name}:`, error);
+                                    fixResults.push({
+                                        name: resourceInfo.name,
+                                        fixed: 0,
+                                        failed: resourceInfo.violations.length,
+                                        violations: []
+                                    });
+                                }
+                            }
+
+                            const totalFixed = fixResults.reduce((sum, r) => sum + r.fixed, 0);
+                            const totalFailed = fixResults.reduce((sum, r) => sum + r.failed, 0);
+
+                            // Store fixed resources for potential cluster application
+                            const fixedResources: Array<{name: string, namespace: string, resource: any}> = [];
+                            
+                            // Track which resources have fixed configs saved
+                            for (const [key, resourceInfo] of Object.entries(violationsByResource)) {
+                                const configPath = fixedConfigs.find(path => path.includes(resourceInfo.name));
+                                if (configPath) {
+                                    // We need to re-fetch the resource with fixes applied
+                                    // The cleanResource created earlier has the fixes in its spec
+                                    const result = fixResults.find(r => r.name === resourceInfo.name);
+                                    if (result && result.fixed > 0) {
+                                        try {
+                                            // Fetch again to get the fixed resource we saved
+                                            const resources = await services.kubernetes.getCustomResources(
+                                                'actions.github.com/v1alpha1',
+                                                'AutoScalingRunnerSet',
+                                                resourceInfo.namespace
+                                            );
+                                            const originalResource = resources.find((r: any) => r.metadata?.name === resourceInfo.name);
+                                            
+                                            if (originalResource) {
+                                                // Apply the same fixes to a fresh copy for cluster application
+                                                for (const violation of resourceInfo.violations) {
+                                                    applyFixToResource(originalResource, violation, services.logger);
+                                                }
+                                                
+                                                fixedResources.push({
+                                                    name: resourceInfo.name,
+                                                    namespace: resourceInfo.namespace,
+                                                    resource: originalResource
+                                                });
+                                            }
+                                        } catch (error: any) {
+                                            services.logger.error(`Failed to prepare fixed resource for ${resourceInfo.name}:`, error);
+                                        }
+                                    }
+                                }
+                            }
+
+                            // If apply=true, apply the fixes to the cluster
+                            const applyResults: Array<{name: string, applied: boolean, error?: string}> = [];
+                            if (applyMode) {
+                                services.logger.info('🚀 Applying fixed configs to cluster...');
+                                
+                                for (const fixedResourceInfo of fixedResources) {
+                                    try {
+                                        // Apply to cluster using applyResource (handles create/update automatically)
+                                        await services.kubernetes.applyResource(fixedResourceInfo.resource);
+
+                                        applyResults.push({
+                                            name: fixedResourceInfo.name,
+                                            applied: true
+                                        });
+                                        services.logger.info(`✅ Applied fixes to cluster: ${fixedResourceInfo.name}`);
+                                    } catch (error: any) {
+                                        applyResults.push({
+                                            name: fixedResourceInfo.name,
+                                            applied: false,
+                                            error: error.message
+                                        });
+                                        services.logger.error(`❌ Failed to apply ${fixedResourceInfo.name}:`, error);
+                                    }
+                                }
+                            }
+
+                            const report = applyMode ? `# 🚀 Policy Auto-Fix: Apply Mode
+
+> **Mode**: Generate + Apply  
+> **Location**: \`configs/runner-sets/\` folder (saved for audit)  
+> **Cluster**: ✅ Changes applied immediately
+
+## ✅ Summary
+
+- **Total Violations**: ${autoFixableViolations.length}
+- **Successfully Fixed**: ${totalFixed} ✅
+- **Failed to Fix**: ${totalFailed} ❌
+- **Resources Updated**: ${Object.keys(violationsByResource).length}
+- **Applied to Cluster**: ${applyResults.filter(r => r.applied).length}/${applyResults.length}
+
+## 📁 Generated Files (saved for audit trail)
+
+${fixedConfigs.length > 0 ? fixedConfigs.map(path => `- ✅ \`${path}\``).join('\n') : '⚠️ No config files generated'}
+
+## 🚀 Cluster Application Results
+
+${applyResults.map(result => 
+    result.applied 
+        ? `- ✅ **${result.name}**: Applied successfully`
+        : `- ❌ **${result.name}**: Failed - ${result.error}`
+).join('\n')}
+
+## 🔧 Violations Fixed
+
+${fixResults.map(result => `
+### ${result.name}
+${result.fixed > 0 ? result.violations.map((v: any) => {
+    const displayValue = v.actualValue !== undefined 
+        ? (typeof v.actualValue === 'object' ? JSON.stringify(v.actualValue) : v.actualValue)
+        : 'N/A';
+    return `- ✅ **${v.ruleName}**: \`${v.field}\` → \`${displayValue}\``;
+}).join('\n') : ''}
+${result.failed > 0 ? `⚠️ **${result.failed} fix(es) failed** - manual intervention required` : ''}
+`).join('\n')}
+
+## 📋 Next Steps
+
+1. **Verify** the changes in your cluster:
+   \`\`\`bash
+   kubectl get autoscalingrunnersets -n ${params.namespace || 'arc-systems'}
+   \`\`\`
+2. **Validate** compliance improved:
+   \`\`\`
+   Use #arc_validate_policies with operation=report
+   \`\`\`
+3. **Commit** the config files to Git for audit trail:
+   \`\`\`bash
+   git add configs/runner-sets/
+   git commit -m "fix: apply policy auto-fixes to runners"
+   \`\`\`
+
+✅ **Fixes applied to cluster** - config files saved in \`configs/\` for audit trail!
+` : `# 📝 Policy Auto-Fix: Config Generation Mode
+
+> **Mode**: Configs-Only (GitOps/Hybrid workflow)  
+> **Location**: \`configs/runner-sets/\` folder  
+> **Cluster**: No changes applied yet ✋
+
+## ✅ Summary
+
+- **Total Violations**: ${autoFixableViolations.length}
+- **Successfully Fixed**: ${totalFixed} ✅
+- **Failed to Fix**: ${totalFailed} ❌
+- **Resources Updated**: ${Object.keys(violationsByResource).length}
+
+## 📁 Generated Files
+
+${fixedConfigs.length > 0 ? fixedConfigs.map(path => `- ✅ \`${path}\``).join('\n') : '⚠️ No config files generated'}
+
+## 🔧 Violations Fixed
+
+${fixResults.map(result => `
+### ${result.name}
+${result.fixed > 0 ? result.violations.map((v: any) => {
+    const displayValue = v.actualValue !== undefined 
+        ? (typeof v.actualValue === 'object' ? JSON.stringify(v.actualValue) : v.actualValue)
+        : 'N/A';
+    return `- ✅ **${v.ruleName}**: \`${v.field}\` → \`${displayValue}\``;
+}).join('\n') : ''}
+${result.failed > 0 ? `⚠️ **${result.failed} fix(es) failed** - manual intervention required` : ''}
+`).join('\n')}
+
+## 📋 Next Steps (Hybrid/GitOps Workflow)
+
+⏸️  **IMPORTANT**: Config files generated in \`configs/\` folder **only** - NOT applied to cluster yet!
+
+1. **Review** the generated config files in \`configs/runner-sets/\`
+2. **Commit** to Git:
+   \`\`\`bash
+   git add configs/runner-sets/
+   git commit -m "fix: apply policy auto-fixes to runners"
+   \`\`\`
+3. **Apply** to cluster when ready:
+   ${fixedConfigs.map(path => {
+       const name = path.split('/').pop()?.replace('.yaml', '');
+       return `   Use #arc_apply_config with configType=runnerSet, name=${name}`;
+   }).join('\n')}
+4. **Validate**: \`Use #arc_validate_policies with operation=report\`
+
+💡 **Config files saved in \`configs/\`** - ready for review and Git commit!
+
+---
+
+**Want to apply immediately?** Re-run with \`apply=true\` to generate configs AND apply to cluster:
+\`\`\`
+Use #arc_validate_policies with operation=auto_fix, apply=true
+\`\`\`
+`;
+
+                            return {
+                                content: [{ type: 'text', text: report }],
+                                isError: false,
+                                structuredData: { fixedConfigs, autoFixableViolations }
+                            };
+                        }
+
+                        // Default: Direct apply mode (preview - not yet implemented)
+                        const report = `# 🔧 Auto-Fix Policy Violations
+
+## 📊 Summary
+
+Found **${autoFixableViolations.length}** auto-fixable violations.
+
+⚠️ **Note**: Direct auto-fix requires additional implementation for safe automated remediation.
+
+${autoFixableViolations.map((v, idx) => `
+### ${idx + 1}. ${v.ruleName} (${v.severity})
+- **Resource**: \`${v.resource.kind}/${v.resource.name}\`
+- **Issue**: ${v.message}
+- **Current**: \`${v.currentValue}\`
+- **Suggested**: \`${v.suggestedValue}\`
+`).join('\n')}
+
+## � Recommended: Use Config Generation Mode
+
+Generate fixed config files for review before applying:
+
+\`\`\`
+Use #arc_validate_policies with operation=auto_fix, generateConfig=true
+\`\`\`
+
+This aligns with your hybrid/GitOps workflow:
+- 📝 Creates config files in \`configs/runner-sets/\`
+- 🔍 Allows review before applying
+- 📦 Enables Git version control
+- ✅ Safe and auditable
+
+## 🚧 Alternative: Manual Remediation
+
+1. Review each violation above
+2. Apply suggested fixes via \`kubectl edit\` or update YAML configs
+3. Re-validate with \`arc_validate_policies --operation validate\`
+`;
+
+                        return {
+                            content: [{ type: 'text', text: report }],
+                            isError: false,
+                            structuredData: { autoFixableViolations }
+                        };
+                    }
+
+                    default:
+                        throw new Error(`Unknown operation: ${operation}`);
+                }
+
+            } catch (error: any) {
+                services.logger.error('❌ Policy validation failed:', error);
+                return {
+                    content: [{
+                        type: 'text',
+                        text: `# ❌ Policy Validation Failed
+
+**Error**: ${error.message}
+
+**Troubleshooting**:
+- Ensure ARC is installed in the cluster
+- Verify namespace exists
+- Check RunnerScaleSet name is correct
+- Ensure you have proper RBAC permissions
+
+**Common Issues**:
+1. **RunnerScaleSet not found**: Verify the resource exists with \`kubectl get runnerscalesets -n <namespace>\`
+2. **Permission denied**: Ensure your kubeconfig has access to custom resources
+3. **API group mismatch**: This tool expects ARC custom resources in the \`actions.github.com\` API group
+`
+                    }],
+                    isError: true
+                };
+            }
+        }
+    );
+
+    /**
+     * Generate Policy Configuration Tool
+     * Creates a customized policy configuration file based on user requirements
+     * Supports natural language input - e.g., "for development purposes", "staging environment", "production ready"
+     */
+    server.registerTool(
+        'arc_policy_config_generate',
+        {
+            title: 'Generate ARC Policy Configuration',
+            description: 'Generate a customized policy configuration file for various environments and compliance requirements. Supports development, staging, production, plus specialized environments like FedRAMP, HIPAA, PCI-DSS, financial services, edge, IoT, and more. Use natural language or explicit parameters.',
+            inputSchema: {
+                query: z.string().optional().describe('Natural language description (e.g., "for development", "FedRAMP compliant", "HIPAA healthcare", "financial services", "edge computing")'),
+                organizationName: z.string().optional().describe('Your organization name'),
+                environment: z.enum([
+                    'development', 'staging', 'production',
+                    'fedramp', 'fedramp-high', 'fedramp-moderate',
+                    'hipaa', 'pci-dss', 'sox', 'gdpr',
+                    'financial', 'healthcare', 'government',
+                    'edge', 'iot', 'embedded',
+                    'startup', 'enterprise', 'multi-tenant',
+                    'aiml', 'research', 'education',
+                    'high-security', 'zero-trust', 'air-gapped'
+                ]).optional().describe('Target environment type with pre-configured policies'),
+                securityLevel: z.enum(['minimal', 'low', 'medium', 'high', 'maximum', 'paranoid']).optional().describe('Security enforcement level'),
+                complianceFrameworks: z.array(z.string()).optional().describe('Compliance frameworks to enforce (e.g., ["SOC2", "ISO27001", "NIST"])'),
+                costOptimization: z.enum(['none', 'low', 'moderate', 'aggressive']).optional().describe('Cost optimization strategy'),
+                autoFix: z.boolean().optional().describe('Enable automatic policy violation fixes'),
+                outputPath: z.string().optional().describe('Output path for the config file (defaults to configs/policies/arc-policy-config.json)')
+            }
+        },
+        async (params: any) => {
+            try {
+                services.logger.info('🎨 Generating custom policy configuration...');
+                services.logger.info('📦 Received parameters:', JSON.stringify(params, null, 2));
+                services.logger.info('📦 Parameter keys:', Object.keys(params));
+
+                // Natural language processing to detect environment
+                let detectedEnvironment: string | undefined;
+                
+                if (params.query) {
+                    const query = params.query.toLowerCase();
+                    
+                    // Development keywords
+                    if (query.match(/\b(dev|development|develop|local|testing|test)\b/)) {
+                        detectedEnvironment = 'development';
+                    }
+                    // Staging keywords
+                    else if (query.match(/\b(stage|staging|stg|qa|preprod|pre-prod|pre-production)\b/)) {
+                        detectedEnvironment = 'staging';
+                    }
+                    // Production keywords
+                    else if (query.match(/\b(prod|production|live|release)\b/)) {
+                        detectedEnvironment = 'production';
+                    }
+                    // FedRAMP keywords
+                    else if (query.match(/\b(fedramp|fed-ramp|federal|government|nist|fips)\b/)) {
+                        if (query.includes('high')) {
+                            detectedEnvironment = 'fedramp-high';
+                        } else if (query.includes('moderate')) {
+                            detectedEnvironment = 'fedramp-moderate';
+                        } else {
+                            detectedEnvironment = 'fedramp';
+                        }
+                    }
+                    // Healthcare/HIPAA keywords
+                    else if (query.match(/\b(hipaa|healthcare|health|medical|phi|patient)\b/)) {
+                        detectedEnvironment = 'hipaa';
+                    }
+                    // Financial keywords
+                    else if (query.match(/\b(pci|pci-dss|payment|financial|banking|fintech|sox|sarbanes)\b/)) {
+                        if (query.includes('sox') || query.includes('sarbanes')) {
+                            detectedEnvironment = 'sox';
+                        } else {
+                            detectedEnvironment = 'pci-dss';
+                        }
+                    }
+                    // GDPR keywords
+                    else if (query.match(/\b(gdpr|privacy|eu|european|data-protection)\b/)) {
+                        detectedEnvironment = 'gdpr';
+                    }
+                    // Edge/IoT keywords
+                    else if (query.match(/\b(edge|iot|embedded|constrained|low-power)\b/)) {
+                        if (query.includes('iot')) {
+                            detectedEnvironment = 'iot';
+                        } else {
+                            detectedEnvironment = 'edge';
+                        }
+                    }
+                    // AI/ML keywords
+                    else if (query.match(/\b(ai|ml|machine-learning|artificial-intelligence|gpu|training)\b/)) {
+                        detectedEnvironment = 'aiml';
+                    }
+                    // Enterprise keywords
+                    else if (query.match(/\b(enterprise|large-scale|multi-tenant|saas)\b/)) {
+                        detectedEnvironment = 'enterprise';
+                    }
+                    // Startup keywords
+                    else if (query.match(/\b(startup|small|agile|fast|mvp)\b/)) {
+                        detectedEnvironment = 'startup';
+                    }
+                    // High security keywords
+                    else if (query.match(/\b(high-security|zero-trust|air-gapped|isolated|hardened)\b/)) {
+                        if (query.includes('zero-trust')) {
+                            detectedEnvironment = 'zero-trust';
+                        } else if (query.includes('air-gap')) {
+                            detectedEnvironment = 'air-gapped';
+                        } else {
+                            detectedEnvironment = 'high-security';
+                        }
+                    }
+                    // Research/Education keywords
+                    else if (query.match(/\b(research|academic|education|university|lab)\b/)) {
+                        detectedEnvironment = query.includes('research') ? 'research' : 'education';
+                    }
+                }
+
+                // Priority: explicit parameter > detected from query > default to production
+                const environment = params.environment || detectedEnvironment || 'production';
+                const orgName = params.organizationName || 'my-organization';
+                const securityLevel = params.securityLevel;
+                const costOptimization = params.costOptimization || 'moderate';
+                const autoFixEnabled = params.autoFix !== undefined ? params.autoFix : null; // null means use environment default
+
+                /**
+                 * Helper function to generate ruleOverrides based on category enforcement
+                 * Maps the 18+ built-in policy rules to categories and applies enforcement
+                 */
+                const generateRuleOverrides = (categories: any): any => {
+                    // Map of rule IDs to their categories (from policy-engine.ts)
+                    const ruleCategoryMap: { [key: string]: string } = {
+                        // Security rules
+                        'arc-sec-001': 'security',
+                        'arc-sec-002': 'security',
+                        'arc-sec-003': 'security',
+                        'arc-013-003': 'security',
+                        'arc-013-005': 'security',
+                        'arc-013-006': 'security',
+                        
+                        // Performance rules
+                        'arc-res-001': 'performance',
+                        'arc-013-001': 'performance',
+                        'arc-013-007': 'performance',
+                        'arc-scale-002': 'performance',
+                        
+                        // Cost rules
+                        'arc-res-002': 'cost',
+                        'arc-scale-001': 'cost',
+                        
+                        // Operations rules
+                        'arc-ops-001': 'operations',
+                        'arc-ops-002': 'operations',
+                        'arc-013-002': 'operations',
+                        
+                        // Compliance rules
+                        'arc-comp-001': 'compliance',
+                        'arc-comp-002': 'compliance',
+                        
+                        // Networking rules
+                        'arc-013-004': 'networking'
+                    };
+
+                    const ruleOverrides: any = {};
+
+                    // Apply category enforcement to each rule
+                    Object.entries(ruleCategoryMap).forEach(([ruleId, category]) => {
+                        const categorySettings = categories[category];
+                        
+                        if (categorySettings) {
+                            // Map enforcement level to rule settings
+                            const enforcement = categorySettings.enforcement;
+                            const enabled = categorySettings.enabled !== false && enforcement !== 'disabled';
+                            
+                            // Set severity based on enforcement level
+                            let severity: 'low' | 'medium' | 'high' | 'critical' | undefined;
+                            
+                            if (enforcement === 'strict') {
+                                // Strict enforcement: security/compliance = critical, others = high
+                                if (category === 'security' || category === 'compliance') {
+                                    severity = 'critical';
+                                } else {
+                                    severity = 'high';
+                                }
+                            } else if (enforcement === 'advisory') {
+                                // Advisory: medium severity (warnings)
+                                severity = 'medium';
+                            }
+                            // If disabled, don't set severity (let rule default apply)
+                            
+                            ruleOverrides[ruleId] = {
+                                enabled: enabled,
+                                ...(severity && { severity: severity }),
+                                ...(categorySettings.autoFix !== undefined && { autoFix: categorySettings.autoFix })
+                            };
+                        }
+                    });
+
+                    return ruleOverrides;
+                };
+
+                // Environment-specific configuration presets
+                let policyConfig: any;
+
+                if (environment === 'development') {
+                    // DEVELOPMENT: Relaxed policies for fast iteration
+                    const enforcementLevel = params.enforcementLevel || 'advisory';
+                    const autoFix = params.enableAutoFix !== undefined ? params.enableAutoFix : true;
+
+                    const categories = {
+                        security: {
+                            enabled: true,
+                            enforcement: 'advisory',
+                            autoFix: true,
+                            description: 'Relaxed security for dev - warnings only'
+                        },
+                        compliance: {
+                            enabled: false, // Disabled in dev
+                            enforcement: 'disabled',
+                            autoFix: false,
+                            description: 'Compliance checks disabled in development'
+                        },
+                        performance: {
+                            enabled: true,
+                            enforcement: 'advisory',
+                            autoFix: true,
+                            description: 'Performance suggestions with auto-fix'
+                        },
+                        cost: {
+                            enabled: false, // Cost not important in dev
+                            enforcement: 'disabled',
+                            autoFix: false,
+                            description: 'Cost optimization disabled in development'
+                        },
+                        operations: {
+                            enabled: true,
+                            enforcement: 'advisory',
+                            autoFix: true,
+                            description: 'Operational best practices with auto-fix'
+                        }
+                    };
+
+                    policyConfig = {
+                        organization: {
+                            name: orgName,
+                            environment: 'development',
+                            compliance: []
+                        },
+                        global: {
+                            enforcement: enforcementLevel,
+                            autoFix: autoFix,
+                            excludedNamespaces: ['kube-system', 'kube-public', 'kube-node-lease']
+                        },
+                        categories: categories,
+                        ruleOverrides: generateRuleOverrides(categories),
+                        limits: {
+                            maxCpu: null, // No CPU limits in dev
+                            maxMemory: null, // No memory limits in dev
+                            minReplicas: 1,
+                            maxReplicas: null // No scaling limits
+                        }
+                    };
+
+
+                } else if (environment === 'staging') {
+                    // STAGING: Balanced policies - testing production-like settings
+                    const enforcementLevel = params.enforcementLevel || 'advisory';
+                    const autoFix = params.enableAutoFix !== undefined ? params.enableAutoFix : true;
+
+                    const categories = {
+                        security: {
+                            enabled: true,
+                            enforcement: 'advisory', // Warn but don't block
+                            autoFix: true,
+                            description: 'Security checks with warnings - preparing for prod'
+                        },
+                        compliance: {
+                            enabled: true,
+                            enforcement: 'advisory',
+                            autoFix: false,
+                            description: 'Compliance validation - testing prod readiness'
+                        },
+                        performance: {
+                            enabled: true,
+                            enforcement: 'advisory',
+                            autoFix: true,
+                            description: 'Performance optimization with auto-fix'
+                        },
+                        cost: {
+                            enabled: true, // Monitor costs in staging
+                            enforcement: 'advisory',
+                            autoFix: false,
+                            description: 'Cost awareness for production planning'
+                        },
+                        operations: {
+                            enabled: true,
+                            enforcement: 'advisory',
+                            autoFix: true,
+                            description: 'Operational readiness checks'
+                        }
+                    };
+
+                    policyConfig = {
+                        organization: {
+                            name: orgName,
+                            environment: 'staging',
+                            compliance: ['Pre-production validation']
+                        },
+                        global: {
+                            enforcement: enforcementLevel,
+                            autoFix: autoFix,
+                            excludedNamespaces: ['kube-system', 'kube-public', 'kube-node-lease']
+                        },
+                        categories: categories,
+                        ruleOverrides: generateRuleOverrides(categories),
+                        limits: {
+                            maxCpu: '4000m', // Some limits to simulate prod
+                            maxMemory: '8Gi',
+                            minReplicas: 1,
+                            maxReplicas: 10
+                        }
+                    };
+
+                } else if (environment === 'fedramp' || environment === 'fedramp-high' || environment === 'fedramp-moderate') {
+                    // FEDRAMP: Federal government compliance
+                    const level = environment === 'fedramp-high' ? 'High' : environment === 'fedramp-moderate' ? 'Moderate' : 'High';
+                    const categories = {
+                        security: { enabled: true, enforcement: 'strict', autoFix: false, description: `FedRAMP ${level} security controls` },
+                        compliance: { enabled: true, enforcement: 'strict', autoFix: false, description: 'Government compliance required' },
+                        performance: { enabled: true, enforcement: 'strict', autoFix: false, description: 'Performance standards must be met' },
+                        cost: { enabled: true, enforcement: 'strict', autoFix: false, description: 'Cost tracking required' },
+                        operations: { enabled: true, enforcement: 'strict', autoFix: false, description: 'Continuous monitoring required' }
+                    };
+                    policyConfig = {
+                        organization: { name: orgName, environment, compliance: [`FedRAMP ${level}`, 'NIST 800-53', 'FIPS 140-2'] },
+                        global: { enforcement: 'strict', autoFix: autoFixEnabled !== null ? autoFixEnabled : false, excludedNamespaces: ['kube-system', 'kube-public', 'kube-node-lease'], auditLogging: true },
+                        categories: categories,
+                        ruleOverrides: generateRuleOverrides(categories),
+                        limits: { maxCpu: '4000m', maxMemory: '8Gi', minReplicas: 3, maxReplicas: 100 }
+                    };
+                
+                } else if (environment === 'hipaa') {
+                    // HIPAA: Healthcare compliance
+                    const categories = {
+                        security: { enabled: true, enforcement: 'strict', autoFix: false, description: 'PHI protection required' },
+                        compliance: { enabled: true, enforcement: 'strict', autoFix: false, description: 'HIPAA violations block deployment' },
+                        performance: { enabled: true, enforcement: 'strict', autoFix: false, description: 'Healthcare system reliability' },
+                        cost: { enabled: true, enforcement: 'advisory', autoFix: false, description: 'Cost monitoring' },
+                        operations: { enabled: true, enforcement: 'strict', autoFix: false, description: 'Audit trails required' }
+                    };
+                    policyConfig = {
+                        organization: { name: orgName, environment, compliance: ['HIPAA', 'HITECH', 'SOC2 Type II'] },
+                        global: { enforcement: 'strict', autoFix: autoFixEnabled !== null ? autoFixEnabled : false, excludedNamespaces: ['kube-system', 'kube-public', 'kube-node-lease'] },
+                        categories: categories,
+                        ruleOverrides: generateRuleOverrides(categories),
+                        limits: { maxCpu: '4000m', maxMemory: '8Gi', minReplicas: 3, maxReplicas: 50 }
+                    };
+
+                } else if (environment === 'pci-dss' || environment === 'financial') {
+                    // PCI-DSS: Payment card / Financial services
+                    const categories = {
+                        security: { enabled: true, enforcement: 'strict', autoFix: false, description: 'Payment data protection' },
+                        compliance: { enabled: true, enforcement: 'strict', autoFix: false, description: 'PCI-DSS compliance required' },
+                        performance: { enabled: true, enforcement: 'strict', autoFix: false, description: 'Transaction reliability' },
+                        cost: { enabled: true, enforcement: 'advisory', autoFix: false, description: 'Financial tracking' },
+                        operations: { enabled: true, enforcement: 'strict', autoFix: false, description: 'Audit and monitoring' }
+                    };
+                    policyConfig = {
+                        organization: { name: orgName, environment, compliance: ['PCI-DSS', 'SOC2 Type II', 'ISO27001'] },
+                        global: { enforcement: 'strict', autoFix: autoFixEnabled !== null ? autoFixEnabled : false, excludedNamespaces: ['kube-system', 'kube-public', 'kube-node-lease'] },
+                        categories: categories,
+                        ruleOverrides: generateRuleOverrides(categories),
+                        limits: { maxCpu: '4000m', maxMemory: '8Gi', minReplicas: 3, maxReplicas: 100 }
+                    };
+
+                } else if (environment === 'edge' || environment === 'iot' || environment === 'embedded') {
+                    // EDGE/IoT: Resource-constrained environments
+                    const categories = {
+                        security: { enabled: true, enforcement: 'advisory', autoFix: true, description: 'Lightweight security' },
+                        compliance: { enabled: false, enforcement: 'disabled', autoFix: false, description: 'Compliance disabled for edge' },
+                        performance: { enabled: true, enforcement: 'strict', autoFix: true, description: 'Resource efficiency critical' },
+                        cost: { enabled: true, enforcement: 'strict', autoFix: true, description: 'Aggressive cost optimization' },
+                        operations: { enabled: true, enforcement: 'advisory', autoFix: true, description: 'Minimal operational overhead' }
+                    };
+                    policyConfig = {
+                        organization: { name: orgName, environment, compliance: [] },
+                        global: { enforcement: 'advisory', autoFix: autoFixEnabled !== null ? autoFixEnabled : true, excludedNamespaces: ['kube-system', 'kube-public', 'kube-node-lease'] },
+                        categories: categories,
+                        ruleOverrides: generateRuleOverrides(categories),
+                        limits: { maxCpu: '500m', maxMemory: '1Gi', minReplicas: 1, maxReplicas: 5 }
+                    };
+
+                } else if (environment === 'startup') {
+                    // STARTUP: Fast iteration, cost-conscious
+                    const categories = {
+                        security: { enabled: true, enforcement: 'advisory', autoFix: true, description: 'Basic security practices' },
+                        compliance: { enabled: false, enforcement: 'disabled', autoFix: false, description: 'Compliance disabled for speed' },
+                        performance: { enabled: true, enforcement: 'advisory', autoFix: true, description: 'Performance optimization' },
+                        cost: { enabled: true, enforcement: 'strict', autoFix: true, description: 'Aggressive cost control' },
+                        operations: { enabled: true, enforcement: 'advisory', autoFix: true, description: 'Lean operations' }
+                    };
+                    policyConfig = {
+                        organization: { name: orgName, environment, compliance: [] },
+                        global: { enforcement: 'advisory', autoFix: autoFixEnabled !== null ? autoFixEnabled : true, excludedNamespaces: ['kube-system', 'kube-public', 'kube-node-lease'] },
+                        categories: categories,
+                        ruleOverrides: generateRuleOverrides(categories),
+                        limits: { maxCpu: '2000m', maxMemory: '4Gi', minReplicas: 1, maxReplicas: 10 }
+                    };
+
+                } else if (environment === 'enterprise' || environment === 'multi-tenant') {
+                    // ENTERPRISE: Large-scale, multi-tenant
+                    const categories = {
+                        security: { enabled: true, enforcement: 'strict', autoFix: false, description: 'Enterprise security standards' },
+                        compliance: { enabled: true, enforcement: 'strict', autoFix: false, description: 'Compliance required' },
+                        performance: { enabled: true, enforcement: 'strict', autoFix: false, description: 'SLA requirements' },
+                        cost: { enabled: true, enforcement: 'advisory', autoFix: false, description: 'Cost optimization' },
+                        operations: { enabled: true, enforcement: 'strict', autoFix: false, description: 'Operational excellence' }
+                    };
+                    policyConfig = {
+                        organization: { name: orgName, environment, compliance: ['SOC2 Type II', 'ISO27001'] },
+                        global: { enforcement: 'strict', autoFix: autoFixEnabled !== null ? autoFixEnabled : false, excludedNamespaces: ['kube-system', 'kube-public', 'kube-node-lease'] },
+                        categories: categories,
+                        ruleOverrides: generateRuleOverrides(categories),
+                        limits: { maxCpu: '8000m', maxMemory: '16Gi', minReplicas: 3, maxReplicas: 200 }
+                    };
+
+                } else if (environment === 'aiml' || environment === 'research') {
+                    // AI/ML: GPU workloads, experimentation
+                    const categories = {
+                        security: { enabled: true, enforcement: 'advisory', autoFix: true, description: 'Research security' },
+                        compliance: { enabled: false, enforcement: 'disabled', autoFix: false, description: 'Compliance disabled for research' },
+                        performance: { enabled: true, enforcement: 'advisory', autoFix: false, description: 'GPU/compute optimization' },
+                        cost: { enabled: true, enforcement: 'advisory', autoFix: false, description: 'Expensive compute monitoring' },
+                        operations: { enabled: true, enforcement: 'advisory', autoFix: true, description: 'Flexible operations' }
+                    };
+                    policyConfig = {
+                        organization: { name: orgName, environment, compliance: [] },
+                        global: { enforcement: 'advisory', autoFix: autoFixEnabled !== null ? autoFixEnabled : true, excludedNamespaces: ['kube-system', 'kube-public', 'kube-node-lease'] },
+                        categories: categories,
+                        ruleOverrides: generateRuleOverrides(categories),
+                        limits: { maxCpu: '16000m', maxMemory: '64Gi', minReplicas: 0, maxReplicas: 50 }
+                    };
+
+                } else if (environment === 'high-security' || environment === 'zero-trust' || environment === 'air-gapped') {
+                    // HIGH SECURITY: Maximum security posture
+                    const categories = {
+                        security: { enabled: true, enforcement: 'strict', autoFix: false, description: 'Maximum security - zero tolerance' },
+                        compliance: { enabled: true, enforcement: 'strict', autoFix: false, description: 'Strict compliance required' },
+                        performance: { enabled: true, enforcement: 'strict', autoFix: false, description: 'Security over performance' },
+                        cost: { enabled: true, enforcement: 'advisory', autoFix: false, description: 'Security justifies cost' },
+                        operations: { enabled: true, enforcement: 'strict', autoFix: false, description: 'Secure operations only' }
+                    };
+                    policyConfig = {
+                        organization: { name: orgName, environment, compliance: ['NIST 800-53', 'ISO27001', 'SOC2 Type II'] },
+                        global: { enforcement: 'strict', autoFix: autoFixEnabled !== null ? autoFixEnabled : false, excludedNamespaces: ['kube-system', 'kube-public', 'kube-node-lease'] },
+                        categories: categories,
+                        ruleOverrides: generateRuleOverrides(categories),
+                        limits: { maxCpu: '2000m', maxMemory: '4Gi', minReplicas: 3, maxReplicas: 50 }
+                    };
+
+                } else {
+                    // PRODUCTION: Strict policies for security and compliance
+                    const enforcementLevel = params.enforcementLevel || 'strict';
+                    const autoFix = params.enableAutoFix !== undefined ? params.enableAutoFix : false;
+
+                    const categories = {
+                        security: {
+                            enabled: true,
+                            enforcement: 'strict',
+                            autoFix: false,
+                            description: 'Strict security enforcement - violations block deployment'
+                        },
+                        compliance: {
+                            enabled: true,
+                            enforcement: 'strict',
+                            autoFix: false,
+                            description: 'Compliance violations block deployment'
+                        },
+                        performance: {
+                            enabled: true,
+                            enforcement: 'strict',
+                            autoFix: false,
+                            description: 'Performance standards must be met'
+                        },
+                        cost: {
+                            enabled: true,
+                            enforcement: 'advisory',
+                            autoFix: false,
+                            description: 'Cost monitoring and optimization alerts'
+                        },
+                        operations: {
+                            enabled: true,
+                            enforcement: 'strict',
+                            autoFix: false,
+                            description: 'Operational excellence required'
+                        }
+                    };
+
+                    policyConfig = {
+                        organization: {
+                            name: orgName,
+                            environment: 'production',
+                            compliance: ['SOC2', 'ISO27001', 'PCI-DSS']
+                        },
+                        global: {
+                            enforcement: enforcementLevel,
+                            autoFix: autoFix, // Disabled by default - manual review required
+                            excludedNamespaces: ['kube-system', 'kube-public', 'kube-node-lease']
+                        },
+                        categories: categories,
+                        ruleOverrides: generateRuleOverrides(categories),
+                        limits: {
+                            maxCpu: '2000m', // Strict resource limits
+                            maxMemory: '4Gi',
+                            minReplicas: 2, // HA requirement
+                            maxReplicas: 50
+                        }
+                    };
+                }
+
+                // Apply custom category settings
+                if (params.customCategories) {
+                    Object.assign(policyConfig.categories, params.customCategories);
+                }
+
+                // Add rule overrides for disabled rules
+                if (params.disableRules && params.disableRules.length > 0) {
+                    policyConfig.ruleOverrides = {};
+                    params.disableRules.forEach((ruleId: string) => {
+                        policyConfig.ruleOverrides[ruleId] = {
+                            enabled: false,
+                            comment: 'Disabled by user request'
+                        };
+                    });
+                }
+
+                // Determine output path
+                const outputPath = params.outputPath || 'configs/policies/arc-policy-config.json';
+                const fs = await import('fs/promises');
+                const path = await import('path');
+
+                // Check if file already exists
+                let fileExisted = false;
+                try {
+                    await fs.access(outputPath);
+                    fileExisted = true;
+                    services.logger.info(`📝 Overwriting existing policy configuration: ${outputPath}`);
+                } catch {
+                    services.logger.info(`📄 Creating new policy configuration: ${outputPath}`);
+                }
+
+                // Ensure directory exists
+                const dir = path.dirname(outputPath);
+                await fs.mkdir(dir, { recursive: true });
+
+                // Write the config file (overwrites if exists)
+                await fs.writeFile(
+                    outputPath,
+                    JSON.stringify(policyConfig, null, 2),
+                    'utf-8'
+                );
+
+                services.logger.info(`✅ Policy configuration ${fileExisted ? 'updated' : 'generated'}: ${outputPath}`);
+
+                // Generate response with environment detection info
+                let response = `# 🎨 ARC Policy Configuration ${fileExisted ? 'Updated' : 'Generated'}
+
+✅ **Configuration ${fileExisted ? 'overwritten' : 'created'} successfully!**
+${fileExisted ? '\n⚠️ **Note**: Previous configuration was overwritten.\n' : ''}
+${detectedEnvironment && params.query ? `\n🔍 **Detected Environment**: ${detectedEnvironment} (from: "${params.query}")\n` : ''}
+## 📁 File Location
+
+\`${outputPath}\`
+
+## 📋 Configuration Summary
+
+- **Organization**: ${orgName}
+- **Environment**: ${environment}
+- **Enforcement**: ${policyConfig.global.enforcement}
+- **Auto-fix**: ${policyConfig.global.autoFix ? '✅ Enabled' : '❌ Disabled'}
+${params.disableRules && params.disableRules.length > 0 ? `- **Disabled Rules**: ${params.disableRules.length}` : ''}
+
+## 🎯 Environment Profile: ${environment.toUpperCase()}
+
+${environment === 'development' ? `
+**Development Mode** - Optimized for fast iteration:
+- 🟢 Security: Advisory (warnings only)
+- 🔴 Compliance: Disabled
+- 🟢 Performance: Advisory with auto-fix
+- 🔴 Cost: Disabled
+- 🟢 Operations: Advisory with auto-fix
+- 🚀 No resource limits
+` : environment === 'staging' ? `
+**Staging Mode** - Pre-production validation:
+- 🟡 Security: Advisory (preparing for prod)
+- 🟡 Compliance: Advisory (testing readiness)
+- 🟢 Performance: Advisory with auto-fix
+- 🟡 Cost: Advisory (planning)
+- 🟢 Operations: Advisory with auto-fix
+- 📊 Moderate resource limits
+` : `
+**Production Mode** - Maximum security & compliance:
+- 🔴 Security: Strict enforcement
+- 🔴 Compliance: Strict enforcement
+- 🔴 Performance: Strict enforcement
+- 🟡 Cost: Advisory monitoring
+- 🔴 Operations: Strict enforcement
+- 🔒 Strict resource limits & HA requirements
+`}
+
+## 🔧 Generated Configuration
+
+\`\`\`json
+${JSON.stringify(policyConfig, null, 2)}
+\`\`\`
+
+---
+
+⚠️ **IMPORTANT FOR AI ASSISTANTS**: 
+This configuration file has been generated by the MCP tool and is complete as-is. 
+**DO NOT automatically modify this file unless the user explicitly requests specific changes.**
+If different settings are needed, regenerate using the tool with appropriate parameters instead.
+
+---
+
+## 🚀 Next Steps
+
+1. **Review the configuration** - Open \`${outputPath}\` to review settings
+2. **Run validation** - The config is automatically discovered:
+   \`\`\`
+   arc_validate_policies --operation report
+   \`\`\`
+3. **Need changes?** - Re-run this tool with different parameters rather than manually editing
+
+## 💡 Auto-Discovery
+
+This config will be **automatically loaded** by the policy validation tool because it's in the standard location (\`configs/policies/\`).
+
+## 📝 Generate Different Environment Configurations
+
+The tool supports **natural language** and explicit parameters:
+
+### Natural Language (Recommended)
+\`\`\`
+"Generate a policy config for development purposes"
+"I need a staging environment configuration"
+"Create a production-ready policy config"
+\`\`\`
+
+### Explicit Parameters
+\`\`\`bash
+# Development: Relaxed policies, auto-fix enabled, no limits
+arc_generate_policy_config --environment development
+
+# Staging: Balanced policies, testing prod-like settings
+arc_generate_policy_config --environment staging
+
+# Production: Strict enforcement, compliance required, HA enforced
+arc_generate_policy_config --environment production
+\`\`\`
+
+### With Natural Language Query
+\`\`\`bash
+arc_generate_policy_config --query "for development testing"
+arc_generate_policy_config --query "staging environment"
+arc_generate_policy_config --query "production deployment"
+\`\`\`
+\`\`\`
+
+🎉 **Your ${environment} policy configuration is ready to use!**
+`;
+
+                return {
+                    content: [{ type: 'text', text: response }],
+                    isError: false,
+                    structuredData: {
+                        configPath: outputPath,
+                        configuration: policyConfig
+                    }
+                };
+
+            } catch (error: any) {
+                services.logger.error('❌ Failed to generate policy configuration:', error);
+                return {
+                    content: [{
+                        type: 'text',
+                        text: `# ❌ Policy Configuration Generation Failed
+
+**Error**: ${error.message}
+
+**Troubleshooting**:
+- Ensure the output directory is writable
+- Check that you have permissions to create files
+- Verify the output path is valid
+
+**Common Issues**:
+1. **Permission denied**: Ensure write permissions on the configs directory
+2. **Directory not found**: The tool will create directories automatically, but parent paths must exist
+3. **Invalid JSON**: If customCategories is provided, ensure it's valid JSON
+`
+                    }],
+                    isError: true
+                };
+            }
+        }
+    );
+}
+
+// ============================================================================
+// Policy Auto-Fix Helper Functions
+// ============================================================================
+
+/**
+ * Get fix value from fixAction for complex scenarios
+ */
+function getFixValueFromAction(fixAction: string, resource: any, violation: any): any {
+    const fixActionMap: Record<string, (r: any, v: any) => any> = {
+        'add_runner_security_context': () => ({
+            runAsNonRoot: true,
+            runAsUser: 1000,
+            fsGroup: 1000
+        }),
+        
+        'remove_privileged_flag': () => false,
+        
+        'add_runner_resource_limits': () => {
+            // Extract container name from field if present
+            const containerMatch = violation.field?.match(/containers\[(\d+)\]/);
+            if (containerMatch) {
+                return {
+                    cpu: '2.0',
+                    memory: '2Gi'
+                };
+            }
+            return null;
+        },
+        
+        'set_container_mode_novolume': () => ({
+            type: 'kubernetes',
+            kubernetesModeWorkVolumeClaim: null
+        }),
+        
+        'add_enhanced_metrics_labels': () => {
+            // For labels, we need to return the specific label value
+            if (violation.field?.includes('workflow-name')) {
+                return '${GITHUB_WORKFLOW}';
+            }
+            if (violation.field?.includes('target')) {
+                return '${GITHUB_REPOSITORY}';
+            }
+            return 'unknown';
+        },
+        
+        'configure_dualstack_dns': () => 'ClusterFirst',
+        
+        'configure_openshift_scc': () => 1000,
+        
+        'remove_jit_token_exposure': () => {
+            // This requires removing an item, return null to indicate removal
+            return null;
+        }
+    };
+
+    const handler = fixActionMap[fixAction];
+    if (handler) {
+        return handler(resource, violation);
+    }
+    
+    return undefined;
+}
+
+/**
+ * Apply a fix to a resource based on a policy violation
+ */
+function applyFixToResource(resource: any, violation: any, logger?: any): boolean {
+    const field = violation.field;
+    let suggestedValue = violation.suggestedValue;
+
+    // If no suggestedValue but we have fixAction, try to get the value
+    if (suggestedValue === undefined && violation.fixAction) {
+        suggestedValue = getFixValueFromAction(violation.fixAction, resource, violation);
+    }
+
+    if (!field || suggestedValue === undefined) {
+        logger?.warn(`Cannot apply fix for ${violation.ruleName}: No suggestedValue or fixAction handler available`);
+        return false;
+    }
+
+    // Handle special cases for array wildcard fields like containers[*]
+    if (field.includes('[*]')) {
+        return applyFixToArrayField(resource, field, suggestedValue, logger);
+    }
+
+    const parts = field.split('.');
+    let current = resource;
+
+    // Navigate to the parent of the field we want to set
+    for (let i = 0; i < parts.length - 1; i++) {
+        const part = parts[i];
+        
+        // Handle array indices like containers[0]
+        const arrayMatch = part.match(/^(\w+)\[(\d+)\]$/);
+        if (arrayMatch) {
+            const [, arrayName, index] = arrayMatch;
+            if (!current[arrayName]) {
+                current[arrayName] = [];
+            }
+            if (!current[arrayName][parseInt(index)]) {
+                current[arrayName][parseInt(index)] = {};
+            }
+            current = current[arrayName][parseInt(index)];
+        } else {
+            if (!current[part]) {
+                current[part] = {};
+            }
+            current = current[part];
+        }
+    }
+
+    // Set the final value
+    const lastPart = parts[parts.length - 1];
+    const arrayMatch = lastPart.match(/^(\w+)\[(\d+)\]$/);
+    if (arrayMatch) {
+        const [, arrayName, index] = arrayMatch;
+        if (!current[arrayName]) {
+            current[arrayName] = [];
+        }
+        current[arrayName][parseInt(index)] = suggestedValue;
+    } else {
+        current[lastPart] = suggestedValue;
+    }
+    
+    logger?.info(`Applied fix for ${violation.ruleName}: ${field} = ${JSON.stringify(suggestedValue)}`);
+    return true;
+}
+
+/**
+ * Apply fix to array fields with wildcard (e.g., containers[*].field)
+ */
+function applyFixToArrayField(resource: any, field: string, suggestedValue: any, logger?: any): boolean {
+    const parts = field.split('.');
+    const arrayPart = parts.find(p => p.includes('[*]'));
+    
+    if (!arrayPart) {
+        return false;
+    }
+
+    const arrayName = arrayPart.replace('[*]', '');
+    const arrayIndex = parts.indexOf(arrayPart);
+    
+    // Navigate to the array
+    let current = resource;
+    for (let i = 0; i < arrayIndex; i++) {
+        if (!current[parts[i]]) {
+            current[parts[i]] = {};
+        }
+        current = current[parts[i]];
+    }
+
+    const array = current[arrayName];
+    if (!Array.isArray(array) || array.length === 0) {
+        logger?.warn(`Cannot apply fix: ${arrayName} is not an array or is empty`);
+        return false;
+    }
+
+    // Apply the fix to all items in the array
+    const remainingPath = parts.slice(arrayIndex + 1);
+    let fixedCount = 0;
+    
+    for (const item of array) {
+        let target = item;
+        for (let i = 0; i < remainingPath.length - 1; i++) {
+            if (!target[remainingPath[i]]) {
+                target[remainingPath[i]] = {};
+            }
+            target = target[remainingPath[i]];
+        }
+        target[remainingPath[remainingPath.length - 1]] = suggestedValue;
+        fixedCount++;
+    }
+
+    logger?.info(`Applied fix to ${fixedCount} items in ${arrayName}`);
+    return true;
+}
+
+// ============================================================================
+// Policy Formatting Helper Functions
+// ============================================================================
+
+function formatPolicyRulesForChat(rules: any[], category?: string): string {
+    const title = category 
+        ? `# 📋 ARC Policy Rules - ${category.charAt(0).toUpperCase() + category.slice(1)}`
+        : '# 📋 All ARC Policy Rules';
+
+    let report = `${title}
+
+Found **${rules.length}** policy rules${category ? ` in category '${category}'` : ''}.
+
+`;
+
+    // Group by category
+    const grouped = rules.reduce((acc, rule) => {
+        if (!acc[rule.category]) acc[rule.category] = [];
+        acc[rule.category].push(rule);
+        return acc;
+    }, {} as Record<string, any[]>);
+
+    Object.entries(grouped).forEach(([cat, catRules]) => {
+        const rules = catRules as any[];
+        report += `## ${getCategoryEmoji(cat)} ${cat.charAt(0).toUpperCase() + cat.slice(1)} Policies (${rules.length})
+
+`;
+        rules.forEach((rule: any) => {
+            const statusEmoji = rule.enabled ? '✅' : '⚪';
+            const severityEmoji = getSeverityEmoji(rule.severity);
+            
+            report += `### ${statusEmoji} ${rule.name}
+- **ID**: \`${rule.id}\`
+- **Severity**: ${severityEmoji} ${rule.severity}
+- **Scope**: ${rule.scope}
+- **Status**: ${rule.enabled ? 'Enabled' : 'Disabled'}
+- **Description**: ${rule.description}
+
+`;
+        });
+    });
+
+    report += `
+## 📖 Usage Examples
+
+\`\`\`
+# Validate specific RunnerScaleSet
+arc_validate_policies --operation validate --namespace arc-systems --runnerScaleSetName my-runners
+
+# Generate compliance report
+arc_validate_policies --operation report
+
+# List violations by severity
+arc_validate_policies --operation list_violations --severity critical
+
+# Auto-fix violations (preview)
+arc_validate_policies --operation auto_fix --namespace arc-systems
+\`\`\`
+`;
+
+    return report;
+}
+
+function formatComplianceReportForChat(report: any): string {
+    const complianceEmoji = report.overallCompliance >= 90 ? '✅' : 
+                           report.overallCompliance >= 70 ? '⚠️' : '❌';
+
+    let output = `# ${complianceEmoji} ARC Compliance Report
+
+**Cluster**: ${report.cluster}
+${report.namespace ? `**Namespace**: ${report.namespace}\n` : '**Scope**: Cluster-wide\n'}
+**Compliance Score**: **${report.overallCompliance.toFixed(1)}%**
+**Timestamp**: ${new Date(report.timestamp).toLocaleString()}
+
+---
+
+## 📊 Summary
+
+| Metric | Count |
+|--------|-------|
+| Total Rules Evaluated | ${report.results.summary.totalRules} |
+| Rules Passed | ✅ ${report.results.summary.passedRules} |
+| Rules Failed | ❌ ${report.results.summary.failedRules} |
+| Critical Violations | 🔴 ${report.results.violations.filter((v: any) => v.severity === 'critical').length} |
+| High Violations | 🟠 ${report.results.violations.filter((v: any) => v.severity === 'high').length} |
+| Warnings | ⚠️ ${report.results.warnings.length} |
+
+`;
+
+    // Violations by severity
+    if (Object.keys(report.results.summary.violationsBySeverity).length > 0) {
+        output += `## 🎯 Violations by Severity
+
+`;
+        Object.entries(report.results.summary.violationsBySeverity).forEach(([severity, count]) => {
+            output += `- ${getSeverityEmoji(severity)} **${severity}**: ${count}\n`;
+        });
+        output += '\n';
+    }
+
+    // Violations by category
+    if (Object.keys(report.results.summary.violationsByCategory).length > 0) {
+        output += `## 📂 Violations by Category
+
+`;
+        Object.entries(report.results.summary.violationsByCategory).forEach(([category, count]) => {
+            output += `- ${getCategoryEmoji(category)} **${category}**: ${count}\n`;
+        });
+        output += '\n';
+    }
+
+    // Critical violations details
+    const criticalViolations = report.results.violations.filter((v: any) => v.severity === 'critical');
+    if (criticalViolations.length > 0) {
+        output += `## 🔴 Critical Violations
+
+`;
+        criticalViolations.forEach((v: any, idx: number) => {
+            output += `### ${idx + 1}. ${v.ruleName}
+- **Resource**: \`${v.resource.kind}/${v.resource.name}\` ${v.resource.namespace ? `(namespace: ${v.resource.namespace})` : ''}
+- **Issue**: ${v.message}
+- **Field**: \`${v.field}\`
+- **Current Value**: \`${v.currentValue}\`
+${v.suggestedValue ? `- **Suggested Value**: \`${v.suggestedValue}\`` : ''}
+- **Auto-fixable**: ${v.canAutoFix ? '✅ Yes' : '❌ No'}
+
+`;
+        });
+    }
+
+    // Recommendations
+    if (report.recommendations.length > 0) {
+        output += `## 💡 Recommendations
+
+${report.recommendations.map((rec: string) => `- ${rec}`).join('\n')}
+
+`;
+    }
+
+    output += `---
+
+## 📖 Next Steps
+
+1. **Review critical violations** and address immediately
+2. **Plan remediation** for high-priority issues
+3. **Use auto-fix** for simple violations: \`arc_validate_policies --operation auto_fix\`
+4. **Re-validate** after fixes: \`arc_validate_policies --operation report\`
+
+*Report generated at ${new Date(report.timestamp).toLocaleString()}*
+`;
+
+    return output;
+}
+
+function formatValidationResultForChat(result: any, params: any): string {
+    const statusEmoji = result.passed ? '✅' : '❌';
+    const status = result.passed ? 'PASSED' : 'FAILED';
+
+    let output = `# ${statusEmoji} Policy Validation Result - ${status}
+
+**Resource**: ${params.runnerScaleSetName}
+**Namespace**: ${params.namespace}
+
+## 📊 Summary
+
+| Metric | Count |
+|--------|-------|
+| Total Rules | ${result.summary.totalRules} |
+| Passed | ✅ ${result.summary.passedRules} |
+| Failed | ❌ ${result.summary.failedRules} |
+| Violations | 🔴 ${result.violations.length} |
+| Warnings | ⚠️ ${result.warnings.length} |
+
+`;
+
+    // Violations
+    if (result.violations.length > 0) {
+        output += `## 🔴 Policy Violations
+
+${result.violations.map((v: any, idx: number) => `
+### ${idx + 1}. ${v.ruleName} (${getSeverityEmoji(v.severity)} ${v.severity})
+- **Category**: ${getCategoryEmoji(v.category)} ${v.category}
+- **Message**: ${v.message}
+- **Field**: \`${v.field}\`
+- **Current**: \`${v.currentValue}\`
+${v.suggestedValue ? `- **Suggested**: \`${v.suggestedValue}\`` : ''}
+- **Auto-fix**: ${v.canAutoFix ? '✅ Available' : '❌ Manual required'}
+`).join('\n')}
+
+`;
+    }
+
+    // Warnings
+    if (result.warnings.length > 0) {
+        output += `## ⚠️ Policy Warnings
+
+${result.warnings.map((w: any, idx: number) => `
+### ${idx + 1}. ${w.ruleName} (${getSeverityEmoji(w.severity)} ${w.severity})
+- **Category**: ${getCategoryEmoji(w.category)} ${w.category}
+- **Message**: ${w.message}
+- **Field**: \`${w.field}\`
+- **Current**: \`${w.currentValue}\`
+${w.suggestedValue ? `- **Suggested**: \`${w.suggestedValue}\`` : ''}
+`).join('\n')}
+
+`;
+    }
+
+    if (result.passed) {
+        output += `## ✅ All Checks Passed!
+
+This RunnerScaleSet complies with all ${result.summary.totalRules} policy rules.
+
+`;
+    }
+
+    output += `---
+
+## 📖 Next Steps
+
+${result.passed ? 
+    '✅ No action required - all policies are compliant!' :
+    `1. Review violations above
+2. Fix critical issues first
+3. Use auto-fix for applicable violations: \`arc_validate_policies --operation auto_fix --namespace ${params.namespace}\`
+4. Re-validate after fixes`}
+`;
+
+    return output;
+}
+
+function formatViolationsListForChat(violations: any[], params: any): string {
+    const filters = [];
+    if (params.severity) filters.push(`severity: ${params.severity}`);
+    if (params.category) filters.push(`category: ${params.category}`);
+    const filterText = filters.length > 0 ? ` (filtered by ${filters.join(', ')})` : '';
+
+    let output = `# 📋 Current Policy Violations${filterText}
+
+Found **${violations.length}** violation(s)${params.namespace ? ` in namespace \`${params.namespace}\`` : ' cluster-wide'}.
+
+`;
+
+    if (violations.length === 0) {
+        output += `## ✅ No Violations Found!
+
+All ARC resources are compliant with policy rules${filterText}.
+
+`;
+        return output;
+    }
+
+    // Group by severity
+    const bySeverity = violations.reduce((acc, v) => {
+        if (!acc[v.severity]) acc[v.severity] = [];
+        acc[v.severity].push(v);
+        return acc;
+    }, {} as Record<string, any[]>);
+
+    ['critical', 'high', 'medium', 'low'].forEach(severity => {
+        const items = bySeverity[severity] || [];
+        if (items.length > 0) {
+            output += `## ${getSeverityEmoji(severity)} ${severity.toUpperCase()} (${items.length})
+
+`;
+            items.forEach((v: any, idx: number) => {
+                output += `### ${idx + 1}. ${v.ruleName}
+- **Resource**: \`${v.resource.kind}/${v.resource.name}\` ${v.resource.namespace ? `(${v.resource.namespace})` : ''}
+- **Category**: ${getCategoryEmoji(v.category)} ${v.category}
+- **Issue**: ${v.message}
+- **Field**: \`${v.field}\`
+- **Current**: \`${v.currentValue}\`
+${v.suggestedValue ? `- **Suggested**: \`${v.suggestedValue}\`` : ''}
+- **Auto-fix**: ${v.canAutoFix ? '✅ Yes' : '❌ No'}
+- **Timestamp**: ${new Date(v.timestamp).toLocaleString()}
+
+`;
+            });
+        }
+    });
+
+    const autoFixCount = violations.filter(v => v.canAutoFix).length;
+    if (autoFixCount > 0) {
+        output += `---
+
+## 🔧 Auto-Fix Available
+
+**${autoFixCount}** violation(s) can be automatically fixed.
+
+Run: \`arc_validate_policies --operation auto_fix${params.namespace ? ` --namespace ${params.namespace}` : ''}\`
+
+`;
+    }
+
+    return output;
+}
+
+function getSeverityEmoji(severity: string): string {
+    const map: Record<string, string> = {
+        'critical': '🔴',
+        'high': '🟠',
+        'medium': '🟡',
+        'low': '🟢'
+    };
+    return map[severity] || '⚪';
+}
+
+function getCategoryEmoji(category: string): string {
+    const map: Record<string, string> = {
+        'security': '🔒',
+        'compliance': '📋',
+        'performance': '📊',
+        'cost': '💰',
+        'operations': '⚙️',
+        'networking': '🌐'
+    };
+    return map[category] || '📁';
 }

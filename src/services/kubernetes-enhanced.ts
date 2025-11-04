@@ -129,6 +129,14 @@ export class KubernetesEnhancedService implements IKubernetesService {
     }
 
     /**
+     * Get the KubeConfig instance
+     * Required by policy engine and other services that need direct access
+     */
+    getKubeConfig(): k8s.KubeConfig {
+        return this.kc;
+    }
+
+    /**
      * Get comprehensive cluster information
      */
     async getClusterInfo(): Promise<ClusterInfo> {

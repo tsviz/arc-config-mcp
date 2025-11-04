@@ -1,0 +1,45 @@
+chart:
+  repository: oci://ghcr.io/actions/actions-runner-controller-charts/gha-runner-scale-set
+  name: gha-runner-scale-set
+  version: latest
+release:
+  name: tsvi-runners
+  namespace: arc-systems
+  createNamespace: false
+values:
+  githubConfigUrl: https://github.com/tsvi-solutions
+  githubConfigSecret:
+    github_token: ${GITHUB_TOKEN}
+  controllerServiceAccount:
+    namespace: arc-systems
+    name: arc-gha-rs-controller
+  minRunners: 1
+  maxRunners: 3
+  runnerGroup: default
+  runnerScaleSetName: tsvi-runners
+  containerMode:
+    type: dind
+  template:
+    spec:
+      containers:
+        - name: runner
+          image: ghcr.io/actions/actions-runner:latest
+          command:
+            - /home/runner/run.sh
+          env:
+            - name: DOCKER_ENABLED
+              value: 'true'
+            - name: RUNNER_FEATURE_FLAG_EPHEMERAL
+              value: 'true'
+          resources:
+            limits:
+              cpu: '2.0'
+              memory: 2Gi
+            requests:
+              cpu: 200m
+              memory: 256Mi
+metadata:
+  managedBy: arc-config-mcp
+  mode: hybrid
+  generatedAt: '2025-11-04T00:07:21.333Z'
+  organization: tsvi-solutions

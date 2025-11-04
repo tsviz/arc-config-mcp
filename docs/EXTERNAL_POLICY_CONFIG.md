@@ -13,6 +13,52 @@ External Policy Configuration allows organizations to define ARC governance poli
 - Shared across multiple ARC deployments
 - Dynamically reloaded based on file changes
 
+## 🚀 Auto-Discovery (No Configuration Needed!)
+
+**The policy validation tool automatically discovers your policy configurations** - no need to specify paths manually!
+
+### Standard Locations Checked (in order)
+
+The tool searches these paths automatically:
+
+1. `configs/policies/arc-policy-config.json`
+2. `configs/policies/arc-policy-config.yaml`
+3. `.arc/policy-config.json`
+4. `.arc/policy-config.yaml`
+
+### Quick Start with Auto-Discovery
+
+```bash
+# Step 1: Generate a policy config
+arc_generate_policy_config --organization "my-org" --environment "production"
+
+# Step 2: Run validation (auto-discovers the config!)
+arc_validate_policies
+# ✅ Auto-discovered: configs/policies/arc-policy-config.json
+# 📊 Compliance Score: 85.6%
+```
+
+### Benefits of Auto-Discovery
+
+| Benefit | Description |
+|---------|-------------|
+| **Zero Config** | No `configPath` parameter needed |
+| **GitOps-Friendly** | Standard `configs/` folder structure |
+| **Team Consistency** | Everyone uses same paths |
+| **Quick Setup** | Works immediately after generation |
+
+### Manual Path Override (Optional)
+
+Only needed for non-standard locations:
+
+```bash
+# Custom location
+arc_validate_policies --configPath /custom/path/policy-config.json
+
+# Environment-specific
+arc_validate_policies --configPath configs/policies/staging-policies.yaml
+```
+
 ## 🏗️ Configuration Architecture
 
 ```

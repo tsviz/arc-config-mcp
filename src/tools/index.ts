@@ -1,15 +1,12 @@
 /**
- * MCP Tools     services.logger.info('Enhanced ARC MCP tools registered successfully');
-}
-
-// Keep the original tools as reference/backup but don't register them
-function registerOriginalArcToolsBackup(server: any, services: ServiceContext): void {ation
+ * MCP Tools Registration
  * 
  * Registers all ARC management tools with the MCP server.
  */
 
 import type { ServiceContext } from '../types/arc.js';
-import { registerEnhancedArcTools } from './enhanced-tools.js';
+import { registerEnhancedArcTools, registerPolicyTools } from './enhanced-tools.js';
+import { registerHybridTools } from './hybrid-tools.js';
 
 /**
  * Register all ARC management tools with enhanced real-time capabilities
@@ -18,8 +15,16 @@ export function registerArcTools(server: any, services: ServiceContext): void {
     // Register enhanced tools with real-time progress updates
     registerEnhancedArcTools(server, services);
     
+    // Register hybrid model tools for GitOps workflow
+    registerHybridTools(server, services);
+    
+    // Register policy validation and compliance tools
+    registerPolicyTools(server, services);
+    
     // Original tools are replaced by enhanced versions - no need to register both
     services.logger.info('Enhanced ARC MCP tools registered successfully');
+    services.logger.info('Hybrid Model (GitOps) tools registered successfully');
+    services.logger.info('Policy validation tools registered successfully');
 }
 
 /**

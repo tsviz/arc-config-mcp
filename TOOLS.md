@@ -37,11 +37,119 @@ Args: { "filter": "install" }
 | -------------------------------- | ---------------------------------------- | ----------------------------------- |
 | **🎯 Core ARC Operations**        | install, status, scale, manage, cleanup  | Essential ARC lifecycle management  |
 | **🤖 AI-Powered Features**        | natural_language, troubleshoot, optimize | Intelligent automation and analysis |
-| **🔒 Security & Compliance**      | validate_policies, security_scan, audit  | Policy enforcement and security     |
+| **� Hybrid Model (GitOps)**      | deploy_hybrid, apply_config, detect_drift| Version-controlled deployments     |
+| **�🔒 Security & Compliance**      | validate_policies, security_scan, audit  | Policy enforcement and security     |
 | **📊 Monitoring & Insights**      | health_check, metrics, reports           | Observability and analytics         |
 | **🛠️ Infrastructure Management**  | networking, secrets, backup, upgrade     | Advanced cluster operations         |
 | **🎭 Natural Language Interface** | process_natural_language                 | Human-friendly command processing   |
 | **🔥 ARC 0.13.0 Features**        | container_mode, dual_stack, key_vault    | Latest ARC capabilities             |
+
+---
+
+## 📋 Hybrid Model Tools (NEW!)
+
+### `arc_deploy_runners_hybrid`
+**Deploy runners with GitOps workflow**
+
+Deploys GitHub Actions runners following DevOps best practices with version control.
+
+**Parameters:**
+- `organization` (string, optional): GitHub organization name (auto-detects from GITHUB_ORG)
+- `minRunners` (number, optional): Minimum number of runners (default: 5)
+- `maxRunners` (number, optional): Maximum number of runners (default: 20)
+- `runnerName` (string, optional): Custom name for the runner deployment
+- `namespace` (string, optional): Kubernetes namespace (default: arc-systems)
+- `mode` (enum, optional): Deployment mode - `hybrid` (default), `gitops`, or `direct`
+- `autoCommit` (boolean, optional): Automatically commit generated configs
+- `apply` (boolean, optional): Apply configuration immediately (default: true in hybrid mode)
+
+**Example:**
+```text
+Tool: arc_deploy_runners_hybrid
+Args: {
+  "organization": "my-org",
+  "minRunners": 10,
+  "maxRunners": 50,
+  "mode": "hybrid",
+  "autoCommit": false
+}
+```
+
+**Output:**
+- ✅ Config file generated in `configs/runner-sets/`
+- 📊 Git status and commit information
+- 🚀 Application status to cluster
+- 💡 Next steps for review and deployment
+
+---
+
+### `arc_apply_config`
+**Apply configuration from repository**
+
+Applies ARC configurations from your repository's config files to the Kubernetes cluster.
+
+**Parameters:**
+- `configType` (enum): Type of configuration - `controller` or `runnerSet`
+- `name` (string, optional): Name of the runner set (required for runnerSet type)
+
+**Example:**
+```text
+Tool: arc_apply_config
+Args: {
+  "configType": "runnerSet",
+  "name": "my-org-runners"
+}
+```
+
+**Output:**
+- ✅ Application status
+- 📊 Resource status in cluster
+- 🔍 Validation results
+
+---
+
+### `arc_list_configs`
+**List all configurations in repository**
+
+Lists all ARC configurations stored in your repository.
+
+**Parameters:** None
+
+**Example:**
+```text
+Tool: arc_list_configs
+Args: {}
+```
+
+**Output:**
+- 🎛️ Controller configuration
+- 🏃‍♂️ All runner set configurations
+- 📝 Paths and last modified dates
+- 📊 Scaling ranges and organizations
+
+---
+
+### `arc_detect_drift`
+**Detect configuration drift**
+
+Compares configurations in your repository with what is actually deployed in the cluster.
+
+**Parameters:**
+- `runnerName` (string, optional): Specific runner set to check (checks all if omitted)
+
+**Example:**
+```text
+Tool: arc_detect_drift
+Args: {
+  "runnerName": "my-org-runners"
+}
+```
+
+**Output:**
+- ✅ Drift status (detected or not)
+- 📋 List of differences between repo and cluster
+- 🔧 Recommended actions to sync
+- 💡 Commands to apply fixes
 
 ---
 
@@ -163,6 +271,157 @@ interface CleanupParams {
 - Safe environment decommissioning
 
 > **⚠️ Important**: This tool is disabled by default for safety. Enable with `CLEANUP_ARC=true` environment variable. See [Cleanup Documentation](docs/CLEANUP_FUNCTIONALITY.md) for full details.
+
+---
+
+## 🔒 Security & Compliance Tools
+
+### `arc_validate_policies`
+**Validate ARC configurations against security, compliance, performance, and cost policies**
+
+Comprehensive policy validation engine with 20+ built-in rules covering security, compliance, performance, cost, and operational best practices.
+
+**Parameters:**
+```typescript
+interface ValidatePoliciesParams {
+  operation?: 'validate' | 'report' | 'list_rules' | 'list_violations' | 'auto_fix';
+  namespace?: string;           // Target namespace (all if not specified)
+  runnerScaleSetName?: string; // Specific RunnerScaleSet to validate
+  category?: 'security' | 'compliance' | 'performance' | 'cost' | 'operations' | 'networking';
+  severity?: 'low' | 'medium' | 'high' | 'critical';
+  autoFix?: boolean;           // Auto-remediate violations (default: false)
+  configPath?: string;         // Custom policy configuration file
+}
+```
+
+**Operations:**
+
+#### 1. `validate` - Validate Specific Resource
+Checks a single RunnerScaleSet against all policies.
+
+**Example:**
+```text
+Tool: arc_validate_policies
+Args: {
+  "operation": "validate",
+  "namespace": "arc-systems",
+  "runnerScaleSetName": "production-runners"
+}
+```
+
+**Output:**
+- ✅/❌ Overall validation status
+- 🔴 Critical violations with details
+- ⚠️ Warnings and recommendations
+- 📊 Compliance summary by category and severity
+- 🔧 Auto-fix availability for each violation
+
+#### 2. `report` - Compliance Report
+Generates comprehensive compliance report for namespace or cluster.
+
+**Example:**
+```text
+Tool: arc_validate_policies
+Args: {
+  "operation": "report",
+  "namespace": "arc-systems"
+}
+```
+
+**Output:**
+- 📊 Overall compliance score (percentage)
+- 📈 Violations by severity and category
+- 🎯 Critical issues requiring immediate attention
+- 💡 Remediation recommendations
+- 📋 SOC2/ISO27001 compliance mapping
+
+#### 3. `list_rules` - Available Policies
+Lists all policy rules with descriptions and configuration.
+
+**Example:**
+```text
+Tool: arc_validate_policies
+Args: {
+  "operation": "list_rules",
+  "category": "security"
+}
+```
+
+**Output:**
+- 📋 All policy rules (or filtered by category)
+- 🔒 Rule IDs, names, and descriptions
+- 📊 Severity levels and enforcement mode
+- ⚙️ Scope (cluster, namespace, runnerscaleset)
+- ✅ Enabled/disabled status
+
+#### 4. `list_violations` - Current Violations
+Lists all current policy violations across deployments.
+
+**Example:**
+```text
+Tool: arc_validate_policies
+Args: {
+  "operation": "list_violations",
+  "severity": "critical",
+  "category": "security"
+}
+```
+
+**Output:**
+- 🔴 Violations grouped by severity
+- 📂 Categorized by policy type
+- 🎯 Resource details (kind, name, namespace)
+- 💡 Suggested fixes for each violation
+- 🔧 Auto-fix availability status
+
+#### 5. `auto_fix` - Remediate Violations
+Automatically fixes violations where possible (preview mode).
+
+**Example:**
+```text
+Tool: arc_validate_policies
+Args: {
+  "operation": "auto_fix",
+  "namespace": "arc-systems"
+}
+```
+
+**Output:**
+- 🔧 List of auto-fixable violations
+- ⚙️ Remediation actions to be taken
+- 📋 Manual fixes still required
+- ⚠️ Preview mode notice (full auto-fix coming soon)
+
+**Built-in Policy Categories:**
+
+| Category | Rules | Focus Area |
+|----------|-------|------------|
+| 🔒 **Security** | 6 rules | Security contexts, privileged containers, secrets, hostPath mounts, capabilities |
+| 📋 **Compliance** | 3 rules | Repository scoping, runner groups, resource labeling |
+| 📊 **Performance** | 3 rules | Resource limits, CPU/memory quotas |
+| 💰 **Cost** | 2 rules | Autoscaling, resource right-sizing |
+| ⚙️ **Operations** | 2 rules | Runner images, operational labels |
+
+**Example Natural Language Commands:**
+- *"Validate my runners for security compliance"*
+- *"Check if our ARC setup meets SOC2 requirements"*
+- *"Show me all critical policy violations"*
+- *"Generate a compliance report for the production namespace"*
+- *"List all security policies and their status"*
+- *"Auto-fix performance policy violations"*
+
+**Key Features:**
+- ✅ 20+ built-in policy rules
+- 🎯 Custom policy configuration support
+- 🔧 Auto-fix capabilities (where safe)
+- 📊 Compliance scoring and reporting
+- 🚨 Severity-based prioritization
+- 🏷️ Category-based filtering
+- 📋 SOC2/ISO27001 mapping
+
+> **📖 Full Documentation**: See [Policy Validation Guide](docs/POLICY_VALIDATION.md) for comprehensive documentation, custom policy configuration, and best practices.
+
+---
 
 ### 🤖 AI-Powered Features
 

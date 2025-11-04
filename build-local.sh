@@ -61,9 +61,10 @@ EOF
 
 echo -e "${GREEN}✅ mcp.json updated with new tag${NC}"
 
-# Clean up old local-dev images (keep last 3)
+# Clean up old local-dev images (keep last 3, sorted by creation time)
 echo -e "${YELLOW}🧹 Cleaning up old local-dev images...${NC}"
-OLD_IMAGES=$(docker images --format "table {{.Repository}}:{{.Tag}}" | grep "arc-config-mcp:local-dev" | tail -n +4)
+# Get all local-dev images sorted by creation time (newest first), skip the newest 3
+OLD_IMAGES=$(docker images --format "{{.Repository}}:{{.Tag}} {{.CreatedAt}}" | grep "arc-config-mcp:local-dev" | sort -k2 -r | tail -n +4 | awk '{print $1}')
 if [ ! -z "$OLD_IMAGES" ]; then
     echo "$OLD_IMAGES" | xargs docker rmi 2>/dev/null || true
     echo -e "${GREEN}✅ Cleaned up old images${NC}"

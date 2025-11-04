@@ -21,7 +21,7 @@ export interface ArcInstallationConfig {
     minReplicas: number;
     maxReplicas: number;
     // ARC 0.13.0 features
-    containerMode?: 'kubernetes' | 'kubernetes-novolume';
+    containerMode?: 'kubernetes' | 'kubernetes-novolume' | 'dind';
     dualStackNetworking?: boolean;
     azureKeyVault?: AzureKeyVaultConfig;
     openShiftSupport?: boolean;
@@ -57,7 +57,7 @@ export interface ArcRunnerStatus {
     lastUpdate: string;
     githubRepository?: string;
     // ARC 0.13.0 features
-    containerMode?: 'kubernetes' | 'kubernetes-novolume';
+    containerMode?: 'kubernetes' | 'kubernetes-novolume' | 'dind';
     networkConfig?: {
         dualStack: boolean;
         ipv4?: string;
@@ -130,7 +130,7 @@ export interface ServiceContext {
 
 // ARC 0.13.0 specific interfaces
 export interface ContainerModeConfig {
-    mode: 'kubernetes' | 'kubernetes-novolume';
+    mode: 'kubernetes' | 'kubernetes-novolume' | 'dind';
     hooks?: {
         preStart?: string[];
         postStop?: string[];

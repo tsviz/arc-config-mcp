@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft-07/schema",
+  "version": "1.0.0",
+  "description": "ARC MCP Server configuration for Hybrid Model",
+  "configPath": "./configs",
+  "defaultMode": "hybrid",
+  "modes": {
+    "hybrid": "Generate configs to repo, then optionally apply",
+    "gitops": "Generate configs only, never apply (pure GitOps)",
+    "direct": "Apply directly without saving to repo (legacy mode)"
+  },
+  "preferences": {
+    "autoCommit": false,
+    "commitMessageTemplate": "chore(arc): ${action} - ${description}",
+    "applyConfirmation": true,
+    "driftDetection": true
+  },
+  "paths": {
+    "controller": "configs/controller.yaml",
+    "runnerSets": "configs/runner-sets",
+    "policies": "configs/policies"
+  }
+}

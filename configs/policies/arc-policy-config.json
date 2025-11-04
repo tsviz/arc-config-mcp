@@ -1,0 +1,145 @@
+{
+  "organization": {
+    "name": "my-organization",
+    "environment": "hipaa",
+    "compliance": [
+      "HIPAA",
+      "HITECH",
+      "SOC2 Type II"
+    ]
+  },
+  "global": {
+    "enforcement": "strict",
+    "autoFix": false,
+    "excludedNamespaces": [
+      "kube-system",
+      "kube-public",
+      "kube-node-lease"
+    ]
+  },
+  "categories": {
+    "security": {
+      "enabled": true,
+      "enforcement": "strict",
+      "autoFix": false,
+      "description": "PHI protection required"
+    },
+    "compliance": {
+      "enabled": true,
+      "enforcement": "strict",
+      "autoFix": false,
+      "description": "HIPAA violations block deployment"
+    },
+    "performance": {
+      "enabled": true,
+      "enforcement": "strict",
+      "autoFix": false,
+      "description": "Healthcare system reliability"
+    },
+    "cost": {
+      "enabled": true,
+      "enforcement": "advisory",
+      "autoFix": false,
+      "description": "Cost monitoring"
+    },
+    "operations": {
+      "enabled": true,
+      "enforcement": "strict",
+      "autoFix": false,
+      "description": "Audit trails required"
+    }
+  },
+  "ruleOverrides": {
+    "arc-sec-001": {
+      "enabled": true,
+      "severity": "critical",
+      "autoFix": false
+    },
+    "arc-sec-002": {
+      "enabled": true,
+      "severity": "critical",
+      "autoFix": false
+    },
+    "arc-sec-003": {
+      "enabled": true,
+      "severity": "critical",
+      "autoFix": false
+    },
+    "arc-013-003": {
+      "enabled": true,
+      "severity": "critical",
+      "autoFix": false
+    },
+    "arc-013-005": {
+      "enabled": true,
+      "severity": "critical",
+      "autoFix": false
+    },
+    "arc-013-006": {
+      "enabled": true,
+      "severity": "critical",
+      "autoFix": false
+    },
+    "arc-res-001": {
+      "enabled": true,
+      "severity": "high",
+      "autoFix": false
+    },
+    "arc-013-001": {
+      "enabled": true,
+      "severity": "high",
+      "autoFix": false
+    },
+    "arc-013-007": {
+      "enabled": true,
+      "severity": "high",
+      "autoFix": false
+    },
+    "arc-scale-002": {
+      "enabled": true,
+      "severity": "high",
+      "autoFix": false
+    },
+    "arc-res-002": {
+      "enabled": true,
+      "severity": "medium",
+      "autoFix": false
+    },
+    "arc-scale-001": {
+      "enabled": true,
+      "severity": "medium",
+      "autoFix": false
+    },
+    "arc-ops-001": {
+      "enabled": true,
+      "severity": "high",
+      "autoFix": false
+    },
+    "arc-ops-002": {
+      "enabled": true,
+      "severity": "high",
+      "autoFix": false
+    },
+    "arc-013-002": {
+      "enabled": true,
+      "severity": "high",
+      "autoFix": false
+    },
+    "arc-comp-001": {
+      "enabled": true,
+      "severity": "critical",
+      "autoFix": false
+    },
+    "arc-comp-002": {
+      "enabled": true,
+      "severity": "critical",
+      "autoFix": false
+    }
+  },
+  "limits": {
+    "maxCpu": "4000m",
+    "maxMemory": "8Gi",
+    "minReplicas": 3,
+    "maxReplicas": 50
+  }
+}

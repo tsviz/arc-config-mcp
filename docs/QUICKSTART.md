@@ -141,6 +141,63 @@ Before starting, ensure you have:
       • Cost impact: +$15/hour during peak
 ```
 
+### Scenario 4: Policy Validation & Compliance
+
+```text
+🧑 "Check my ARC policies"
+
+🤖 Running comprehensive policy validation...
+
+   🔍 Auto-Discovery:
+      ✅ Found policy config: configs/policies/arc-policy-config.json
+      📋 Applying custom policy overrides
+
+   📊 Compliance Score: ⚠️ 72.2%
+
+   | Metric         | Count |
+   |----------------|-------|
+   | Total Rules    | 18    |
+   | ✅ Passed      | 13    |
+   | ❌ Failed      | 5     |
+   | 🔴 Critical    | 0     |
+   | 🟠 High        | 0     |
+   | ⚠️ Warnings    | 5     |
+
+   🔧 Auto-Fix Available:
+      • 3 violations can be fixed automatically
+      • Missing resource limits (2 runners)
+      • Missing security context (1 runner)
+
+   💡 Quick Actions:
+      • "Fix policy violations" - Auto-remediate
+      • "Show me security violations" - Detailed view
+      • "Generate compliance report" - Full analysis
+
+🧑 "Fix policy violations"
+
+🤖 Applying automatic fixes...
+
+   ✅ Fixed missing resource limits
+   ✅ Added security context (non-root)
+   ✅ Configured DNS policy
+   
+   📁 Generated: configs/runner-sets/tsvi-solutions-runners.yaml
+   
+   🔍 Re-validating...
+   ✅ New Compliance Score: 88.9%
+   ✅ 3 violations resolved
+   
+   💡 Next Steps:
+      • Review: configs/runner-sets/tsvi-solutions-runners.yaml
+      • Apply: "Apply the runner configuration"
+```
+
+**Pro Tip**: Generate a custom policy config for your needs:
+```text
+"Generate a policy config for production with strict security"
+```
+This creates `configs/policies/arc-policy-config.json` which is auto-discovered on next validation!
+
 ## 🔧 Configuration
 
 ### Environment Variables

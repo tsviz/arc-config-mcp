@@ -1,0 +1,13 @@
+chart:
+  repository: oci://ghcr.io/actions/actions-runner-controller-charts/gha-runner-scale-set-controller
+  name: gha-runner-scale-set-controller
+  version: latest
+release:
+  name: arc-controller
+  namespace: arc-systems
+  createNamespace: true
+values: {}
+metadata:
+  managedBy: arc-config-mcp
+  mode: hybrid
+  generatedAt: '2025-11-04T00:06:38.729Z'

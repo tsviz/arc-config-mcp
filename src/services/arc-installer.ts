@@ -825,9 +825,10 @@ ${runnerDisplay}                                                             │
      * Wait for cert-manager to be fully ready including CRDs and webhooks
      */
     private async waitForCertManagerReady(): Promise<void> {
-        const maxRetries = 60; // 10 minutes with 10-second intervals
+        const maxRetries = 12; // 2 minutes with 10-second intervals
         let retries = 0;
         let lastLoggedPhase = '';
+        let consecutiveNotFoundCount = 0; // Track consecutive "not found" responses
 
         this.log('⏳ Waiting for cert-manager to be fully operational...');
 
@@ -841,7 +842,7 @@ ${runnerDisplay}                                                             │
                         lastLoggedPhase = 'namespace';
                     }
                 } catch (error) {
-                    if (retries % 10 === 0) { // Log every 10 attempts (100 seconds)
+                    if (retries % 6 === 0) { // Log every 6 attempts (60 seconds)
                         this.log(`⏳ Waiting for cert-manager namespace... (${retries + 1}/${maxRetries})`);
                     }
                     retries++;
@@ -852,6 +853,7 @@ ${runnerDisplay}                                                             │
                 // Phase 2: Check if deployments exist and are ready
                 const deployments = ['cert-manager', 'cert-manager-webhook', 'cert-manager-cainjector'];
                 let allDeploymentsReady = true;
+                let allDeploymentsNotFound = true;
                 let deploymentStatus = [];
                 
                 for (const deployment of deployments) {
@@ -859,6 +861,7 @@ ${runnerDisplay}                                                             │
                         const result = await this.commandExecutor.kubectl(`get deployment ${deployment} -n cert-manager -o jsonpath='{.status.readyReplicas}'`);
                         const ready = parseInt(result.stdout) || 0;
                         
+                        allDeploymentsNotFound = false; // At least one deployment exists
                         if (ready === 0) {
                             allDeploymentsReady = false;
                             deploymentStatus.push(`${deployment}: 0 ready`);
@@ -871,8 +874,21 @@ ${runnerDisplay}                                                             │
                     }
                 }
 
+                // Fast fail if ALL deployments are not found for 3 consecutive checks
+                if (allDeploymentsNotFound) {
+                    consecutiveNotFoundCount++;
+                    this.log(`⚠️ All cert-manager deployments not found (attempt ${consecutiveNotFoundCount}/3)`);
+                    
+                    if (consecutiveNotFoundCount >= 3) {
+                        this.log('❌ cert-manager deployments do not exist after 30 seconds - installation appears incomplete');
+                        throw new Error('cert-manager deployments not found - reinstallation required');
+                    }
+                } else {
+                    consecutiveNotFoundCount = 0; // Reset counter if any deployment exists
+                }
+
                 if (!allDeploymentsReady) {
-                    if (retries % 6 === 0) { // Log every 6 attempts (60 seconds)
+                    if (retries % 3 === 0) { // Log every 3 attempts (30 seconds)
                         this.log(`⏳ Waiting for deployments: ${deploymentStatus.join(', ')}`);
                     }
                     retries++;
@@ -2382,27 +2398,70 @@ echo "Performance: Optimized"`
      */
     private async getRunnerStatus(namespace: string): Promise<any[]> {
         try {
-            // Get runner scale sets using legacy CRDs (current Helm chart installs these)
-            const runnerScaleSets = await this.kubernetes.getCustomResources('actions.github.com/v1alpha1', 'autoscalingrunnersets', namespace);
+            // Get runner scale sets using kubectl directly
+            const result = await this.commandExecutor.kubectl(`get autoscalingrunnersets.actions.github.com -n ${namespace} -o json`);
+            const runnerData = JSON.parse(result.stdout);
+            
+            if (!runnerData.items || runnerData.items.length === 0) {
+                return [];
+            }
 
-            return runnerScaleSets.map((rs: any) => ({
-                name: rs.metadata.name,
-                status: rs.status?.currentReplicas === rs.status?.desiredReplicas ? 'Running' : 'Scaling',
-                replicas: {
-                    current: rs.status?.currentReplicas || 0,
-                    desired: rs.status?.desiredReplicas || 0,
-                    ready: rs.status?.readyReplicas || 0
-                },
-                aiOptimized: rs.metadata.labels?.['ai.arc.io/optimized'] === 'true'
-            }));
+            // Get pods for each runner set to get actual pod status
+            const runners = [];
+            for (const rs of runnerData.items) {
+                const name = rs.metadata.name;
+                
+                // Get pods for this runner set
+                let runningPods = 0;
+                let pendingPods = 0;
+                let totalPods = 0;
+                
+                try {
+                    const podResult = await this.commandExecutor.kubectl(`get pods -n ${namespace} -l actions.github.com/scale-set-name=${name} -o json`);
+                    const podData = JSON.parse(podResult.stdout);
+                    
+                    if (podData.items) {
+                        totalPods = podData.items.length;
+                        for (const pod of podData.items) {
+                            if (pod.status?.phase === 'Running') {
+                                runningPods++;
+                            } else if (pod.status?.phase === 'Pending') {
+                                pendingPods++;
+                            }
+                        }
+                    }
+                } catch (podError) {
+                    this.logger.warn(`Could not fetch pods for runner set ${name}`, { error: podError });
+                }
+
+                runners.push({
+                    name: name,
+                    status: rs.status?.currentRunners === rs.spec?.minRunners ? 'Running' : 
+                            rs.status?.currentRunners > 0 ? 'Scaling' : 'Pending',
+                    replicas: {
+                        current: rs.status?.currentRunners || 0,
+                        min: rs.spec?.minRunners || 0,
+                        max: rs.spec?.maxRunners || 0,
+                        pending: rs.status?.pendingRunners || 0,
+                        running: rs.status?.runningRunners || 0,
+                        finished: rs.status?.finishedRunners || 0
+                    },
+                    pods: {
+                        total: totalPods,
+                        running: runningPods,
+                        pending: pendingPods
+                    },
+                    githubConfigUrl: rs.spec?.githubConfigUrl || 'Unknown',
+                    runnerGroup: rs.spec?.runnerGroup || 'default',
+                    containerMode: rs.spec?.template?.spec?.containerMode || 'kubernetes'
+                });
+            }
+
+            return runners;
 
         } catch (error) {
-            return [{
-                name: 'No runner scale sets found',
-                status: 'Not Deployed',
-                replicas: { current: 0, desired: 0, ready: 0 },
-                aiOptimized: false
-            }];
+            this.logger.warn('Could not fetch runner scale sets', { error });
+            return [];
         }
     }
 

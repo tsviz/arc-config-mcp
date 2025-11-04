@@ -22,6 +22,7 @@ export interface PolicyCondition {
     operator: 'equals' | 'not_equals' | 'contains' | 'not_contains' | 'greater_than' | 'less_than' | 'regex_match' | 'exists' | 'not_exists' | 'in' | 'not_in';
     value: any;
     description?: string;
+    suggestedValue?: any;  // Value to use when auto-fixing violations
 }
 
 export interface PolicyAction {
@@ -252,7 +253,12 @@ export class ArcPolicyEngine {
                         field: 'spec.template.spec.securityContext',
                         operator: 'exists',
                         value: true,
-                        description: 'Security context must be defined for runner pods'
+                        description: 'Security context must be defined for runner pods',
+                        suggestedValue: {
+                            runAsNonRoot: true,
+                            runAsUser: 1000,
+                            fsGroup: 1000
+                        }
                     }
                 ],
                 actions: [
@@ -299,7 +305,7 @@ export class ArcPolicyEngine {
                 scope: 'runnerscaleset',
                 conditions: [
                     {
-                        field: 'spec.githubConfigSecret.name',
+                        field: 'spec.githubConfigSecret',
                         operator: 'exists',
                         value: true,
                         description: 'GitHub token secret must be defined'
@@ -414,8 +420,12 @@ export class ArcPolicyEngine {
                     {
                         field: 'spec.template.spec.containerMode',
                         operator: 'in',
-                        value: ['kubernetes', 'kubernetes-novolume'],
-                        description: 'Container mode must be kubernetes or kubernetes-novolume'
+                        value: ['kubernetes', 'kubernetes-novolume', 'dind'],
+                        description: 'Container mode must be kubernetes, kubernetes-novolume, or dind',
+                        suggestedValue: {
+                            type: 'kubernetes',
+                            kubernetesModeWorkVolumeClaim: null
+                        }
                     }
                 ],
                 actions: [
@@ -544,7 +554,8 @@ export class ArcPolicyEngine {
                         field: 'spec.template.spec.securityContext.runAsUser',
                         operator: 'greater_than',
                         value: 999,
-                        description: 'OpenShift requires non-root user ID > 999'
+                        description: 'OpenShift requires non-root user ID > 999',
+                        suggestedValue: 1000
                     }
                 ],
                 actions: [
@@ -588,6 +599,12 @@ export class ArcPolicyEngine {
                 enabled: true,
                 scope: 'runnerscaleset',
                 conditions: [
+                    {
+                        field: 'spec.template.spec.containers[0].image',
+                        operator: 'exists',
+                        value: true,
+                        description: 'Container image must be defined'
+                    },
                     {
                         field: 'spec.template.spec.containers[0].image',
                         operator: 'regex_match',
@@ -725,10 +742,10 @@ export class ArcPolicyEngine {
     async evaluateRunnerScaleSet(namespace: string, runnerScaleSetName: string): Promise<PolicyEvaluationResult> {
         try {
             const response = await this.customApi.getNamespacedCustomObject({
-                group: 'actions.sumologic.com',
+                group: 'actions.github.com',
                 version: 'v1alpha1', 
                 namespace,
-                plural: 'runnerscalesets',
+                plural: 'autoscalingrunnersets',
                 name: runnerScaleSetName
             });
 
@@ -824,45 +841,51 @@ export class ArcPolicyEngine {
         suggestedValue?: any;
     } {
         const fieldValue = this.getFieldValue(resource, condition.field);
+        
+        // Prefer explicit suggestedValue from condition, fallback to condition.value
+        const defaultSuggestion = condition.suggestedValue !== undefined ? condition.suggestedValue : condition.value;
 
         switch (condition.operator) {
             case 'equals':
                 return {
                     passed: fieldValue === condition.value,
                     currentValue: fieldValue,
-                    suggestedValue: condition.value
+                    suggestedValue: defaultSuggestion
                 };
 
             case 'not_equals':
                 return {
                     passed: fieldValue !== condition.value,
-                    currentValue: fieldValue
+                    currentValue: fieldValue,
+                    suggestedValue: defaultSuggestion
                 };
 
             case 'contains':
                 return {
                     passed: String(fieldValue).includes(String(condition.value)),
-                    currentValue: fieldValue
+                    currentValue: fieldValue,
+                    suggestedValue: defaultSuggestion
                 };
 
             case 'not_contains':
                 return {
                     passed: !String(fieldValue).includes(String(condition.value)),
-                    currentValue: fieldValue
+                    currentValue: fieldValue,
+                    suggestedValue: defaultSuggestion
                 };
 
             case 'greater_than':
                 return {
                     passed: this.parseResourceValue(fieldValue) > this.parseResourceValue(condition.value),
                     currentValue: fieldValue,
-                    suggestedValue: condition.value
+                    suggestedValue: defaultSuggestion
                 };
 
             case 'less_than':
                 return {
                     passed: this.parseResourceValue(fieldValue) < this.parseResourceValue(condition.value),
                     currentValue: fieldValue,
-                    suggestedValue: condition.value
+                    suggestedValue: defaultSuggestion
                 };
 
             case 'regex_match':
@@ -870,14 +893,16 @@ export class ArcPolicyEngine {
                     const regex = new RegExp(condition.value);
                     return {
                         passed: regex.test(String(fieldValue)),
-                        currentValue: fieldValue
+                        currentValue: fieldValue,
+                        suggestedValue: defaultSuggestion
                     };
                 }
 
             case 'exists':
                 return {
                     passed: fieldValue !== undefined && fieldValue !== null,
-                    currentValue: fieldValue
+                    currentValue: fieldValue,
+                    suggestedValue: defaultSuggestion
                 };
 
             case 'not_exists':
@@ -920,7 +945,17 @@ export class ArcPolicyEngine {
      */
     private getNestedValue(obj: any, path: string): any {
         return path.split('.').reduce((current, key) => {
-            return current && current[key] !== undefined ? current[key] : undefined;
+            if (!current) return undefined;
+            
+            // Handle array indices like containers[0]
+            const arrayMatch = key.match(/^(\w+)\[(\d+)\]$/);
+            if (arrayMatch) {
+                const [, arrayName, index] = arrayMatch;
+                const array = current[arrayName];
+                return Array.isArray(array) ? array[parseInt(index)] : undefined;
+            }
+            
+            return current[key] !== undefined ? current[key] : undefined;
         }, obj);
     }
 
@@ -971,17 +1006,17 @@ export class ArcPolicyEngine {
 
             if (namespace) {
                 const response = await this.customApi.listNamespacedCustomObject({
-                    group: 'actions.sumologic.com',
+                    group: 'actions.github.com',
                     version: 'v1alpha1',
                     namespace,
-                    plural: 'runnerscalesets'
+                    plural: 'autoscalingrunnersets'
                 });
                 runnerScaleSets = ((response as any).body || response)?.items || [];
             } else {
                 const response = await this.customApi.listClusterCustomObject({
-                    group: 'actions.sumologic.com',
+                    group: 'actions.github.com',
                     version: 'v1alpha1',
-                    plural: 'runnerscalesets'
+                    plural: 'autoscalingrunnersets'
                 });
                 runnerScaleSets = ((response as any).body || response)?.items || [];
             }

@@ -192,6 +192,31 @@ spec:
 
 ## 🎛️ Policy Configuration
 
+### 🚀 Quick Start: Generate Your Policy Config
+
+The easiest way to get started with policy configuration is using the **policy generator tool**:
+
+```bash
+# Generate a basic policy config
+arc_generate_policy_config \
+  --organization "my-org" \
+  --environment "production" \
+  --requirements "Strict security, cost optimization"
+
+# Generated: configs/policies/arc-policy-config.json
+# Auto-discovered by arc_validate_policies!
+```
+
+**Benefits:**
+- ✅ Intelligent defaults based on your requirements
+- ✅ Environment-specific configurations
+- ✅ Auto-discovered (no path specification needed)
+- ✅ Git-friendly (configs/ folder structure)
+
+**Learn more:** See [POLICY_VALIDATION.md](POLICY_VALIDATION.md#policy-configuration-generator-tool) for full documentation.
+
+---
+
 ### Policy File Structure
 ```yaml
 # Complete policy configuration example

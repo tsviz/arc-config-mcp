@@ -41,10 +41,49 @@ const toNumber = (s: string | undefined) => {
 // ARC-specific patterns definition
 const arcPatterns: IntentPattern[] = [
     {
+        name: 'arc_deploy_runners_hybrid',
+        tool: 'arc_deploy_runners_hybrid',
+        description: 'Deploy ARC runners with hybrid GitOps approach',
+        regexes: [
+            /install.*arc.*(runner|with|using)/i,  // "Install ARC with/using runners" or "Install ARC runners"
+            /(setup|deploy|create).*runners?/i, 
+            /add.*runners?.*(repo|repository|org|organization)/i,
+            /install.*arc.*(container.*mode|novolume|ephemeral|storage)/i  // "Install ARC with container mode"
+        ],
+        paramExtractors: [utter => {
+            const ns = utter.match(/in (namespace |ns )?([a-z0-9-]+)/i)?.[2];
+            const org = utter.match(/(org|organization)[:\s]+([a-z0-9-]+)/i)?.[2];
+            const minReplicas = toNumber(utter.match(/min(imum)? (\d+)/i)?.[2]);
+            const maxReplicas = toNumber(utter.match(/max(imum)? (\d+)/i)?.[2]);
+            // Extract container mode
+            let containerMode: string | undefined;
+            if (/dind|docker.?in.?docker|container.*mode.*dind|eliminate.*storage/i.test(utter)) {
+                containerMode = 'dind';
+            } else if (/novolume|no.?volume|ephemeral.*storage|kubernetes-novolume/i.test(utter)) {
+                containerMode = 'kubernetes-novolume';
+            } else if (/with.*volume|persistent.*storage|kubernetes.*mode/i.test(utter)) {
+                containerMode = 'kubernetes';
+            }
+            return {
+                namespace: ns,
+                organization: org,
+                minRunners: minReplicas,
+                maxRunners: maxReplicas,
+                containerMode,
+                apply: true  // Default to applying when user says "install"
+            };
+        }]
+    },
+    {
         name: 'arc_install_controller',
         tool: 'arc_install_controller',
-        description: 'Install ARC controller',
-        regexes: [/install.*arc.*controller/i, /(setup|deploy).*arc/i, /install.*github.*actions.*runner.*controller/i],
+        description: 'Install ARC controller only (without runners)',
+        regexes: [
+            /install.*arc.*controller/i, 
+            /^(setup|deploy).*arc$/i,  // Only match "setup ARC" or "deploy ARC" without additional context
+            /install.*github.*actions.*runner.*controller/i,
+            /install.*arc.*only/i  // "Install ARC only" (no runners)
+        ],
         paramExtractors: [utter => {
             const ns = utter.match(/in (namespace |ns )?([a-z0-9-]+)/i)?.[2] || 'arc-systems';
             const version = utter.match(/version ([v]?[\d.]+)/i)?.[1];
@@ -54,21 +93,31 @@ const arcPatterns: IntentPattern[] = [
     {
         name: 'arc_create_runner_scale_set',
         tool: 'arc_create_runner_scale_set',
-        description: 'Create ARC runner scale set',
+        description: 'Create ARC runner scale set (legacy direct approach)',
         required: ['name', 'namespace', 'githubConfigUrl'],
-        regexes: [/create.*runner.*scale.*set/i, /(setup|deploy).*runners?/i, /add.*runners?.*(repo|repository)/i],
+        regexes: [/create.*runner.*scale.*set/i, /add.*runner.*scale.*set/i],
         paramExtractors: [utter => {
             const name = utter.match(/named? ([a-z0-9-]+)/i)?.[1];
             const ns = utter.match(/in (namespace |ns )?([a-z0-9-]+)/i)?.[2];
             const repo = utter.match(/(repo|repository) ([a-zA-Z0-9_.-]+\/[a-zA-Z0-9_.-]+)/i)?.[2];
             const minReplicas = toNumber(utter.match(/min(imum)? (\d+) replica/i)?.[2]);
             const maxReplicas = toNumber(utter.match(/max(imum)? (\d+) replica/i)?.[2]);
+            // Extract container mode
+            let containerMode: string | undefined;
+            if (/dind|docker.?in.?docker|container.*mode.*dind|eliminate.*storage/i.test(utter)) {
+                containerMode = 'dind';
+            } else if (/novolume|no.?volume|ephemeral.*storage|kubernetes-novolume/i.test(utter)) {
+                containerMode = 'kubernetes-novolume';
+            } else if (/with.*volume|persistent.*storage|kubernetes.*mode/i.test(utter)) {
+                containerMode = 'kubernetes';
+            }
             return {
                 name,
                 namespace: ns,
                 githubConfigUrl: repo ? `https://github.com/${repo}` : undefined,
                 minReplicas,
-                maxReplicas
+                maxReplicas,
+                containerMode
             };
         }]
     },
