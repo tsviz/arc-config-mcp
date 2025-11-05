@@ -1,6 +1,6 @@
 # ARC Config MCP Server
 
-> **🚀 AI-Powered GitHub Actions Runner Controller Management**
+> **🚀 AI-Powered [GitHub Actions Runner Controller](https://docs.github.com/en/actions/concepts/runners/actions-runner-controller) Management**
 > 
 > A comprehensive TypeScript MCP (Model Context Protocol) server that transforms complex ARC operations into conversational AI interactions. Deploy, monitor, and manage GitHub Actions runners with natural language commands.
 
