@@ -43,8 +43,35 @@ export function registerHybridTools(server: any, services: ServiceContext): void
         response += `**Version**: ${version}\n`;
         response += `**Mode**: ${mode}\n\n`;
         
-        // Step 1: Generate and save configuration
+        // Step 0: Check if configs directory exists
         response += '## 📝 Step 1: Configuration Generation\n\n';
+        
+        try {
+          const fs = await import('fs/promises');
+          const path = await import('path');
+          const configsPath = path.resolve(process.cwd(), 'configs');
+          await fs.access(configsPath);
+        } catch (error) {
+          response += `❌ **Failed**: configs directory not found\n\n`;
+          response += `**Error**: The \`configs\` directory does not exist in your workspace.\n\n`;
+          response += `**Required Action**: Create the configs directory first:\n\n`;
+          response += `\`\`\`bash\n`;
+          response += `mkdir -p configs\n`;
+          response += `\`\`\`\n\n`;
+          response += `**Why this is required**:\n`;
+          response += `- The hybrid workflow requires a \`configs/\` directory to store configuration files\n`;
+          response += `- This ensures proper version control and GitOps practices\n`;
+          response += `- Configuration files will be created in \`configs/controller.yaml\` and \`configs/runner-sets/\`\n\n`;
+          response += `**After creating the directory**, run this command again to proceed with the installation.\n`;
+          
+          return {
+            content: [{ type: 'text', text: response }],
+            type: 'controller_deployment_error',
+            error: 'configs_directory_missing'
+          };
+        }
+        
+        // Step 1: Generate and save configuration
         
         const result = await hybridService.deployController({
           namespace,
@@ -164,6 +191,32 @@ export function registerHybridTools(server: any, services: ServiceContext): void
       let response = '# 🚀 ARC Runner Deployment (Hybrid Model)\n\n';
       
       try {
+        // Step 0: Check if configs directory exists
+        try {
+          const fs = await import('fs/promises');
+          const path = await import('path');
+          const configsPath = path.resolve(process.cwd(), 'configs');
+          await fs.access(configsPath);
+        } catch (error) {
+          response += `❌ **Failed**: configs directory not found\n\n`;
+          response += `**Error**: The \`configs\` directory does not exist in your workspace.\n\n`;
+          response += `**Required Action**: Create the configs directory first:\n\n`;
+          response += `\`\`\`bash\n`;
+          response += `mkdir -p configs\n`;
+          response += `\`\`\`\n\n`;
+          response += `**Why this is required**:\n`;
+          response += `- The hybrid workflow requires a \`configs/\` directory to store configuration files\n`;
+          response += `- This ensures proper version control and GitOps practices\n`;
+          response += `- Runner configuration files will be created in \`configs/runner-sets/\`\n\n`;
+          response += `**After creating the directory**, run this command again to proceed with the deployment.\n`;
+          
+          return {
+            content: [{ type: 'text', text: response }],
+            type: 'runner_deployment_error',
+            error: 'configs_directory_missing'
+          };
+        }
+        
         // Step 1: Resolve organization
         const organization = params.organization || process.env.GITHUB_ORG;
         if (!organization) {

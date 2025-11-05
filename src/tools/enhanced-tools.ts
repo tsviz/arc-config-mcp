@@ -319,10 +319,43 @@ To deploy 20 runners with auto-scaling, you can say:
             try {
                 services.logger.info('🔍 Gathering comprehensive ARC status with visual diagrams...');
                 
+                const includeVisualDiagram = params.includeVisualDiagram !== false; // Default to true
+                
                 const result = await services.installer.getStatus();
                 
                 // Create enhanced status display with visual elements
                 let statusContent = `# 🎯 ARC Status Dashboard\n\n`;
+                
+                // Add visual diagram if requested (and we have data for it)
+                if (includeVisualDiagram && result.controller?.installed) {
+                    statusContent += `## 🎨 Visual Cluster Diagram\n\n`;
+                    
+                    // Generate cluster diagram based on current state
+                    const namespace = params.namespace || 'arc-systems';
+                    const deploymentStatus = {
+                        arcDeployment: {
+                            metadata: { name: 'arc-gha-rs-controller' },
+                            spec: { replicas: result.controller.pods },
+                            status: { 
+                                readyReplicas: result.controller.readyPods,
+                                conditions: [{ type: 'Available', status: result.controller.status === 'Healthy' ? 'True' : 'False' }]
+                            }
+                        },
+                        services: [],
+                        hasSecret: true
+                    };
+                    
+                    // Use the installer's diagram generation method
+                    const clusterDiagram = (services.installer as any).generateClusterDiagram(deploymentStatus, namespace);
+                    statusContent += `\`\`\`\n${clusterDiagram}\n\`\`\`\n\n`;
+                    
+                    // Add runner ecosystem diagram if runners exist
+                    if (result.runners && result.runners.length > 0) {
+                        const runnerEcosystemDiagram = (services.installer as any).generateRunnerEcosystemDiagram(result.runners);
+                        statusContent += `## 🏃‍♂️ Runner Ecosystem Diagram\n\n`;
+                        statusContent += `\`\`\`\n${runnerEcosystemDiagram}\n\`\`\`\n\n`;
+                    }
+                }
                 
                 // Controller Status
                 statusContent += `## 🤖 Controller Status\n\n`;

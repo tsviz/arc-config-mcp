@@ -11,7 +11,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.0+-blue.svg)](https://www.typescriptlang.org/)
 
-**📚 Quick Links**: [Installation](#-quick-start) • [Policy Validation Guide](docs/POLICY_VALIDATION_GUIDE.md) • [Policy Rule Integration](docs/POLICY_RULE_INTEGRATION.md) • [Hybrid Workflows](docs/HYBRID_WORKFLOW_CLARITY.md) • [Tool Catalog](#%EF%B8%8F-complete-tool-catalog) • [Roadmap](ROADMAP.md) • [Contributing](#-contributing)
+**📚 Quick Links**: [Installation](#-quick-start) • [🏥 Healthcare Demo](docs/HEALTHCARE_DEMO_WORKFLOW.md) • [🎬 Demo Guide](docs/DEMO_QUICK_REFERENCE.md) • [Policy Validation Guide](docs/POLICY_VALIDATION_GUIDE.md) • [Policy Rule Integration](docs/POLICY_RULE_INTEGRATION.md) • [Hybrid Workflows](docs/HYBRID_WORKFLOW_CLARITY.md) • [Tool Catalog](#%EF%B8%8F-complete-tool-catalog) • [Roadmap](ROADMAP.md) • [Contributing](#-contributing)
 
 ## 🎯 What is ARC Config MCP Server?
 
@@ -98,6 +98,35 @@ The MCP server supports **three deployment workflows** to match your team's need
 ```
 
 > **📖 Learn More**: See [Understanding Workflows](#-understanding-workflows) below to choose the best approach for your team.
+
+## 🎬 Live Demo: Healthcare Compliance in 5 Minutes
+
+Want to see the power of AI-driven ARC management? Check out our **[Healthcare Demo Workflow](docs/HEALTHCARE_DEMO_WORKFLOW.md)** where we:
+
+1. **Deploy 20-40 auto-scaling runners** with a single command
+2. **Generate HIPAA-compliant policies** automatically  
+3. **Auto-fix security violations** with AI remediation
+4. **Ensure zero configuration drift** with GitOps validation
+
+**Final Result**: Production-ready healthcare environment with 85% compliance score!
+
+```text
+User: "Deploy 20-40 runners"
+→ ✅ ARC installed, runners deployed with auto-scaling
+
+User: "Generate arc policies for healthcare production"  
+→ ✅ HIPAA/SOC2/ISO27001 policies created
+
+User: "Auto-fix any policy violations"
+→ ✅ 55.6% → 72.2% compliance improvement
+
+User: "Run drift detection"
+→ ✅ Drift detected & auto-fixed (configs regenerated)
+```
+
+🎯 **Perfect for demos, POCs, and training sessions!**
+
+📖 **[Full Demo Guide](docs/DEMO_QUICK_REFERENCE.md)** • **[Technical Workflow](docs/HEALTHCARE_DEMO_WORKFLOW.md)**
 
 ---
 

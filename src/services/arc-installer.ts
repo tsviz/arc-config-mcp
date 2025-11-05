@@ -142,7 +142,7 @@ export class ArcInstaller {
     /**
      * Generate ASCII art diagram of the cluster state
      */
-    private generateClusterDiagram(deploymentStatus: any, namespace: string): string {
+    public generateClusterDiagram(deploymentStatus: any, namespace: string): string {
         const { arcDeployment, pods, services } = deploymentStatus;
         
         if (!arcDeployment) {
@@ -248,7 +248,7 @@ export class ArcInstaller {
     /**
      * Generate runner ecosystem diagram (for when runners are deployed)
      */
-    private generateRunnerEcosystemDiagram(runners: any[]): string {
+    public generateRunnerEcosystemDiagram(runners: any[]): string {
         if (runners.length === 0) {
             return `
 ┌─────────────────────────────────────────────────────────────┐

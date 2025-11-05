@@ -144,6 +144,22 @@ export class HybridDeploymentService {
     const warnings: string[] = [];
 
     try {
+      // Step 0: Check if configs directory exists (for non-direct mode)
+      if (mode !== 'direct') {
+        try {
+          const fs = await import('fs/promises');
+          const path = await import('path');
+          const configsPath = path.resolve(process.cwd(), 'configs');
+          await fs.access(configsPath);
+        } catch (error) {
+          return {
+            success: false,
+            message: `configs directory not found. Create it first: mkdir -p configs`,
+            warnings: [`The configs directory is required for ${mode} mode to store configuration files`]
+          };
+        }
+      }
+      
       // Step 1: Generate controller configuration
       this.services.logger.info('📝 Generating controller configuration...');
       
@@ -347,6 +363,22 @@ export class HybridDeploymentService {
     const warnings: string[] = [];
 
     try {
+      // Step 0: Check if configs directory exists (for non-direct mode)
+      if (mode !== 'direct') {
+        try {
+          const fs = await import('fs/promises');
+          const path = await import('path');
+          const configsPath = path.resolve(process.cwd(), 'configs');
+          await fs.access(configsPath);
+        } catch (error) {
+          return {
+            success: false,
+            message: `configs directory not found. Create it first: mkdir -p configs`,
+            warnings: [`The configs directory is required for ${mode} mode to store configuration files`]
+          };
+        }
+      }
+      
       // Step 1: Validate organization
       const organization = params.organization || process.env.GITHUB_ORG;
       if (!organization) {

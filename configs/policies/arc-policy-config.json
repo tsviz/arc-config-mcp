@@ -1,11 +1,11 @@
 {
   "organization": {
-    "name": "my-organization",
-    "environment": "hipaa",
+    "name": "Healthcare Organization",
+    "environment": "production",
     "compliance": [
-      "HIPAA",
-      "HITECH",
-      "SOC2 Type II"
+      "SOC2",
+      "ISO27001",
+      "PCI-DSS"
     ]
   },
   "global": {
@@ -22,31 +22,31 @@
       "enabled": true,
       "enforcement": "strict",
       "autoFix": false,
-      "description": "PHI protection required"
+      "description": "Strict security enforcement - violations block deployment"
     },
     "compliance": {
       "enabled": true,
       "enforcement": "strict",
       "autoFix": false,
-      "description": "HIPAA violations block deployment"
+      "description": "Compliance violations block deployment"
     },
     "performance": {
       "enabled": true,
       "enforcement": "strict",
       "autoFix": false,
-      "description": "Healthcare system reliability"
+      "description": "Performance standards must be met"
     },
     "cost": {
       "enabled": true,
       "enforcement": "advisory",
       "autoFix": false,
-      "description": "Cost monitoring"
+      "description": "Cost monitoring and optimization alerts"
     },
     "operations": {
       "enabled": true,
       "enforcement": "strict",
       "autoFix": false,
-      "description": "Audit trails required"
+      "description": "Operational excellence required"
     }
   },
   "ruleOverrides": {
@@ -137,9 +137,9 @@
     }
   },
   "limits": {
-    "maxCpu": "4000m",
-    "maxMemory": "8Gi",
-    "minReplicas": 3,
+    "maxCpu": "2000m",
+    "maxMemory": "4Gi",
+    "minReplicas": 2,
     "maxReplicas": 50
   }
 }

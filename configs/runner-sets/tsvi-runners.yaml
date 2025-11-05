@@ -1,45 +1,109 @@
-chart:
-  repository: oci://ghcr.io/actions/actions-runner-controller-charts/gha-runner-scale-set
-  name: gha-runner-scale-set
-  version: latest
-release:
+apiVersion: actions.github.com/v1alpha1
+kind: AutoscalingRunnerSet
+metadata:
   name: tsvi-runners
   namespace: arc-systems
-  createNamespace: false
-values:
+  labels:
+    actions.github.com/organization: tsvi-solutions
+    actions.github.com/scale-set-name: tsvi-runners
+    actions.github.com/scale-set-namespace: arc-systems
+    app.kubernetes.io/component: autoscaling-runner-set
+    app.kubernetes.io/instance: tsvi-runners
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/name: tsvi-runners
+    app.kubernetes.io/part-of: gha-rs
+    app.kubernetes.io/version: 0.13.0
+    helm.sh/chart: gha-rs-0.13.0
+  annotations:
+    actions.github.com/cleanup-github-secret-name: tsvi-runners-gha-rs-github-secret
+    actions.github.com/cleanup-manager-role-binding: tsvi-runners-gha-rs-manager
+    actions.github.com/cleanup-manager-role-name: tsvi-runners-gha-rs-manager
+    actions.github.com/cleanup-no-permission-service-account-name: tsvi-runners-gha-rs-no-permission
+    actions.github.com/runner-group-name: Default
+    actions.github.com/runner-scale-set-name: tsvi-runners
+    actions.github.com/values-hash: ab1e8048f8670241d4f75508160320ce1adad7a91a9b75a3246ad3ab90c2ecf
+    arc-mcp/auto-fixed: '2025-11-05T02:00:44.953Z'
+    arc-mcp/violations-failed: '1'
+    arc-mcp/violations-fixed: '2'
+    kubectl.kubernetes.io/last-applied-configuration: |
+      {"apiVersion":"actions.github.com/v1alpha1","kind":"AutoscalingRunnerSet","metadata":{"annotations":{"actions.github.com/cleanup-github-secret-name":"tsvi-runners-gha-rs-github-secret","actions.github.com/cleanup-manager-role-binding":"tsvi-runners-gha-rs-manager","actions.github.com/cleanup-manager-role-name":"tsvi-runners-gha-rs-manager","actions.github.com/cleanup-no-permission-service-account-name":"tsvi-runners-gha-rs-no-permission","actions.github.com/runner-group-name":"Default","actions.github.com/runner-scale-set-name":"tsvi-runners","actions.github.com/values-hash":"ab1e8048f8670241d4f75508160320ce1adad7a91a9b75a3246ad3ab90c2ecf","arc-mcp/auto-fixed":"2025-11-05T02:00:10.218Z","arc-mcp/violations-failed":"1","arc-mcp/violations-fixed":"5","meta.helm.sh/release-name":"tsvi-runners","meta.helm.sh/release-namespace":"arc-systems","runner-scale-set-id":"6"},"labels":{"actions.github.com/organization":"tsvi-solutions","actions.github.com/scale-set-name":"tsvi-runners","actions.github.com/scale-set-namespace":"arc-systems","app.kubernetes.io/component":"autoscaling-runner-set","app.kubernetes.io/instance":"tsvi-runners","app.kubernetes.io/managed-by":"Helm","app.kubernetes.io/name":"tsvi-runners","app.kubernetes.io/part-of":"gha-rs","app.kubernetes.io/version":"0.13.0","helm.sh/chart":"gha-rs-0.13.0"},"name":"tsvi-runners","namespace":"arc-systems"},"spec":{"githubConfigSecret":"tsvi-runners-gha-rs-github-secret","githubConfigUrl":"https://github.com/tsvi-solutions","maxRunners":40,"minRunners":20,"runnerGroup":"default","runnerScaleSetName":"tsvi-runners","template":{"spec":{"containers":[{"command":["/home/runner/run.sh"],"env":[{"name":"DOCKER_HOST","value":"unix:///var/run/docker.sock"},{"name":"RUNNER_WAIT_FOR_DOCKER_IN_SECONDS","value":"120"}],"image":"ghcr.io/actions/actions-runner:latest","name":"runner","volumeMounts":[{"mountPath":"/home/runner/_work","name":"work"},{"mountPath":"/var/run","name":"dind-sock"}]}],"dnsPolicy":"ClusterFirst","initContainers":[{"args":["-r","/home/runner/externals/.","/home/runner/tmpDir/"],"command":["cp"],"image":"ghcr.io/actions/actions-runner:latest","name":"init-dind-externals","volumeMounts":[{"mountPath":"/home/runner/tmpDir","name":"dind-externals"}]},{"args":["dockerd","--host=unix:///var/run/docker.sock","--group=$(DOCKER_GROUP_GID)"],"env":[{"name":"DOCKER_GROUP_GID","value":"123"}],"image":"docker:dind","name":"dind","restartPolicy":"Always","securityContext":{"privileged":true},"startupProbe":{"exec":{"command":["docker","info"]},"failureThreshold":24,"initialDelaySeconds":0,"periodSeconds":5},"volumeMounts":[{"mountPath":"/home/runner/_work","name":"work"},{"mountPath":"/var/run","name":"dind-sock"},{"mountPath":"/home/runner/externals","name":"dind-externals"}]}],"restartPolicy":"Never","securityContext":{"fsGroup":1000,"runAsNonRoot":true,"runAsUser":1000},"serviceAccountName":"tsvi-runners-gha-rs-no-permission","volumes":[{"emptyDir":{},"name":"dind-sock"},{"emptyDir":{},"name":"dind-externals"},{"emptyDir":{},"name":"work"}]}}}}
+    meta.helm.sh/release-name: tsvi-runners
+    meta.helm.sh/release-namespace: arc-systems
+    runner-scale-set-id: '6'
+spec:
+  githubConfigSecret: tsvi-runners-gha-rs-github-secret
   githubConfigUrl: https://github.com/tsvi-solutions
-  githubConfigSecret:
-    github_token: ${GITHUB_TOKEN}
-  controllerServiceAccount:
-    namespace: arc-systems
-    name: arc-gha-rs-controller
-  minRunners: 1
-  maxRunners: 3
+  maxRunners: 40
+  minRunners: 20
   runnerGroup: default
   runnerScaleSetName: tsvi-runners
-  containerMode:
-    type: dind
   template:
     spec:
       containers:
-        - name: runner
-          image: ghcr.io/actions/actions-runner:latest
-          command:
+        - command:
             - /home/runner/run.sh
           env:
-            - name: DOCKER_ENABLED
-              value: 'true'
-            - name: RUNNER_FEATURE_FLAG_EPHEMERAL
-              value: 'true'
-          resources:
-            limits:
-              cpu: '2.0'
-              memory: 2Gi
-            requests:
-              cpu: 200m
-              memory: 256Mi
-metadata:
-  managedBy: arc-config-mcp
-  mode: hybrid
-  generatedAt: '2025-11-04T00:07:21.333Z'
-  organization: tsvi-solutions
+            - name: DOCKER_HOST
+              value: unix:///var/run/docker.sock
+            - name: RUNNER_WAIT_FOR_DOCKER_IN_SECONDS
+              value: '120'
+          image: ghcr.io/actions/actions-runner:latest
+          name: runner
+          volumeMounts:
+            - mountPath: /home/runner/_work
+              name: work
+            - mountPath: /var/run
+              name: dind-sock
+      dnsPolicy: ClusterFirst
+      initContainers:
+        - args:
+            - '-r'
+            - /home/runner/externals/.
+            - /home/runner/tmpDir/
+          command:
+            - cp
+          image: ghcr.io/actions/actions-runner:latest
+          name: init-dind-externals
+          volumeMounts:
+            - mountPath: /home/runner/tmpDir
+              name: dind-externals
+        - args:
+            - dockerd
+            - '--host=unix:///var/run/docker.sock'
+            - '--group=$(DOCKER_GROUP_GID)'
+          env:
+            - name: DOCKER_GROUP_GID
+              value: '123'
+          image: docker:dind
+          name: dind
+          restartPolicy: Always
+          securityContext:
+            privileged: true
+          startupProbe:
+            exec:
+              command:
+                - docker
+                - info
+            failureThreshold: 24
+            initialDelaySeconds: 0
+            periodSeconds: 5
+          volumeMounts:
+            - mountPath: /home/runner/_work
+              name: work
+            - mountPath: /var/run
+              name: dind-sock
+            - mountPath: /home/runner/externals
+              name: dind-externals
+      restartPolicy: Never
+      securityContext:
+        fsGroup: 1000
+        runAsNonRoot: true
+        runAsUser: 1000
+      serviceAccountName: tsvi-runners-gha-rs-no-permission
+      volumes:
+        - emptyDir: {}
+          name: dind-sock
+        - emptyDir: {}
+          name: dind-externals
+        - emptyDir: {}
+          name: work

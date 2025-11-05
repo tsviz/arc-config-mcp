@@ -1,10 +1,11 @@
 import * as fs from 'fs/promises';
 import * as path from 'path';
 import * as yaml from 'js-yaml';
+import * as os from 'os';
 
 /**
  * Configuration file manager for the Hybrid Model
- * Handles reading/writing YAML configs to the filesystem
+ * Handles reading/writing YAML configs to the filesystem with environment detection
  */
 
 export interface ArcConfig {
@@ -37,6 +38,83 @@ export class ConfigFileManager {
 
   constructor(workspaceRoot?: string) {
     this.configPath = workspaceRoot || process.cwd();
+  }
+
+  /**
+   * Detect if we're running in a Docker container
+   */
+  private async isRunningInDocker(): Promise<boolean> {
+    try {
+      // Method 1: Check for /.dockerenv file
+      await fs.access('/.dockerenv');
+      return true;
+    } catch {
+      try {
+        // Method 2: Check cgroup for docker
+        const cgroup = await fs.readFile('/proc/1/cgroup', 'utf-8');
+        return cgroup.includes('docker') || cgroup.includes('containerd');
+      } catch {
+        // Method 3: Check hostname pattern (docker containers often have short hex hostnames)
+        const hostname = os.hostname();
+        return /^[0-9a-f]{12}$/.test(hostname);
+      }
+    }
+  }
+
+  /**
+   * Detect the environment type and potential issues
+   */
+  private async detectEnvironment(): Promise<{
+    isDocker: boolean;
+    isVolumeMount: boolean;
+    workspaceMounted: boolean;
+    isConfigsOnlyMount: boolean;
+    suggestions: string[];
+  }> {
+    const isDocker = await this.isRunningInDocker();
+    const suggestions: string[] = [];
+    
+    let isVolumeMount = false;
+    let workspaceMounted = false;
+    let isConfigsOnlyMount = false;
+    
+    if (isDocker) {
+      // Check if configs directory is a volume mount
+      try {
+        const configsPath = path.join(this.configPath, 'configs');
+        const stat = await fs.stat(configsPath);
+        isVolumeMount = true;
+        workspaceMounted = true;
+        suggestions.push('✅ Configs directory is mounted correctly');
+      } catch {
+        // configs directory doesn't exist - check mount type
+        try {
+          const testFile = path.join(this.configPath, '.arc-config.json');
+          await fs.access(testFile);
+          workspaceMounted = true;
+          suggestions.push('✅ Workspace is mounted correctly');
+          suggestions.push('📁 Will create configs directory automatically');
+        } catch {
+          // Neither configs nor workspace are accessible
+          // This suggests configs-only mount where host directory doesn't exist
+          isConfigsOnlyMount = true;
+          workspaceMounted = false;
+          suggestions.push('🐳 Detected configs-only volume mount');
+          suggestions.push('❌ Host configs directory does not exist');
+          suggestions.push('🔧 Create on host: mkdir -p $(pwd)/configs');
+          suggestions.push('� RESTART MCP server after creating directory');
+          suggestions.push('�💡 Or use full workspace mount: -v "$(pwd):/app"');
+        }
+      }
+    }
+    
+    return {
+      isDocker,
+      isVolumeMount,
+      workspaceMounted,
+      isConfigsOnlyMount,
+      suggestions
+    };
   }
 
   /**
@@ -129,32 +207,74 @@ export class ConfigFileManager {
     const filePath = await this.getConfigPath(type, name);
     const dirPath = path.dirname(filePath);
     
+    // Detect environment for better error handling and auto-creation
+    const env = await this.detectEnvironment();
+    
     // Ensure directory exists
     try {
       await fs.mkdir(dirPath, { recursive: true });
+      
+      // In hybrid/GitOps mode with Docker, inform user about successful directory creation
+      if (env.isDocker && env.workspaceMounted) {
+        console.log(`📁 Created directory: ${path.relative(this.configPath, dirPath)}`);
+      }
+      
     } catch (error: any) {
       if (error.code === 'EPERM' || error.code === 'EACCES') {
-        throw new Error(
-          `❌ Failed to create configs directory due to insufficient permissions.\n\n` +
-          `📁 Attempted path: ${dirPath}\n\n` +
-          `Possible causes:\n` +
-          `1. ⚠️  No sufficient permissions to configs folder\n` +
-          `2. 🐳 MCP configuration is not set correctly - missing volume mount:\n` +
-          `   Add this to your MCP config (mcp.json):\n` +
-          `   -v /path/to/workspace/configs:/app/configs\n` +
-          `   \n` +
-          `   Example:\n` +
-          `   "args": [\n` +
-          `     "run", "--rm", "-i",\n` +
-          `     "-v", "\${HOME}/.kube:/home/mcp/.kube:ro",\n` +
-          `     "-v", "\${PWD}/configs:/app/configs",  # Add this line\n` +
-          `     ...\n` +
-          `   ]\n` +
-          `3. 📂 'configs' folder does not exist at the root project level\n` +
-          `   Run: mkdir -p ${this.configPath}/configs\n\n` +
-          `💡 If using Docker, ensure the workspace directory is mounted.\n` +
-          `💡 If running locally, ensure write permissions on the project directory.`
-        );
+        
+        // Enhanced error message with environment context
+        let errorMsg = `❌ Failed to create configs directory due to insufficient permissions.\n\n`;
+        errorMsg += `📁 Attempted path: ${dirPath}\n\n`;
+        
+        if (env.isDocker) {
+          errorMsg += `🐳 **Docker Environment Detected**\n\n`;
+          
+          if (env.isConfigsOnlyMount) {
+            errorMsg += `**Issue**: Configs-only volume mount detected, but host directory doesn't exist\n\n`;
+            errorMsg += `**Root Cause**: Your mcp.json has a configs-only mount:\n`;
+            errorMsg += `  "-v", "$(pwd)/configs:/app/configs"\n`;
+            errorMsg += `But the configs directory doesn't exist on your host machine.\n\n`;
+            errorMsg += `**Solution**: Create the directory on your host:\n`;
+            errorMsg += `\`\`\`bash\n`;
+            errorMsg += `mkdir -p "$(pwd)/configs"\n`;
+            errorMsg += `\`\`\`\n\n`;
+            errorMsg += `**🔄 IMPORTANT**: After creating the directory, you **MUST restart the MCP server**\n`;
+            errorMsg += `to refresh the Docker volume mount. Docker mounts are established at container startup\n`;
+            errorMsg += `and won't detect the newly created directory until the server is restarted.\n\n`;
+            errorMsg += `**Alternative**: Use full workspace mount instead:\n`;
+            errorMsg += `  "-v", "$(pwd):/app"\n\n`;
+            errorMsg += `This error occurs because Docker can't create volume mount points\n`;
+            errorMsg += `when the source directory doesn't exist on the host.\n\n`;
+          } else if (!env.workspaceMounted) {
+            errorMsg += `**Issue**: Workspace not properly mounted to Docker container\n\n`;
+            errorMsg += `**Solution**: Add volume mount to your mcp.json:\n`;
+            errorMsg += `  "-v", "$(pwd):/app",  // Mount entire workspace\n`;
+            errorMsg += `  // OR for configs only:\n`;
+            errorMsg += `  "-v", "$(pwd)/configs:/app/configs"\n\n`;
+          } else {
+            // This case suggests the configs directory was created after container startup
+            errorMsg += `**Issue**: configs directory doesn't exist inside the container\n\n`;
+            errorMsg += `**Most Likely Cause**: If you just created the configs directory,\n`;
+            errorMsg += `the MCP server may need to be restarted to refresh Docker volume mounts.\n\n`;
+            errorMsg += `**🔄 Solution**: Restart the MCP server to refresh volume mounts:\n`;
+            errorMsg += `  1. Stop the MCP server\n`;
+            errorMsg += `  2. Start it again\n`;
+            errorMsg += `  3. Docker will now mount the existing configs directory\n\n`;
+            errorMsg += `**Alternative Solutions**:\n`;
+            env.suggestions.forEach(suggestion => {
+              errorMsg += `  • ${suggestion}\n`;
+            });
+          }
+        } else {
+          errorMsg += `**Local Environment**\n\n`;
+          errorMsg += `Possible causes:\n`;
+          errorMsg += `1. ⚠️  Insufficient permissions\n`;
+          errorMsg += `2. 📂 Parent directory doesn't exist\n`;
+          errorMsg += `3. � Directory is read-only\n\n`;
+          errorMsg += `**Solution**: mkdir -p ${dirPath}\n`;
+        }
+        
+        throw new Error(errorMsg);
       }
       throw error;
     }
@@ -168,12 +288,20 @@ export class ConfigFileManager {
     
     try {
       await fs.writeFile(filePath, yamlContent, 'utf-8');
+      
+      // Success feedback for hybrid/GitOps mode
+      if (env.isDocker && env.workspaceMounted) {
+        const relativePath = path.relative(this.configPath, filePath);
+        console.log(`✅ Config saved: ${relativePath}`);
+        console.log(`💡 Tip: Review and commit with: git add ${relativePath}`);
+      }
+      
     } catch (error: any) {
       if (error.code === 'EPERM' || error.code === 'EACCES') {
         throw new Error(
           `❌ Failed to write config file due to insufficient permissions.\n\n` +
           `📁 Attempted path: ${filePath}\n\n` +
-          `Please check file permissions and MCP volume mount configuration.`
+          `${env.isDocker ? '🐳 Docker environment: Check volume mount configuration' : '💻 Local environment: Check file permissions'}`
         );
       }
       throw error;
