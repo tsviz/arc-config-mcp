@@ -33,6 +33,7 @@ User: "Is there anything else that can be fixed with the auto fix functionality?
 - Policy violation detection
 - Automatic security fixes
 - Compliance score improvement (55.6% → 72.2%)
+- **Built-in prompt** suggesting drift detection next
 
 #### 4. **Configuration Management** (1 minute)
 ```
@@ -53,7 +54,7 @@ User: "Let's run the drift detection tool to make sure our configuration files a
 #### **Technical Excellence**
 - "AI understands industry requirements (healthcare = HIPAA)"
 - "Auto-scaling prevents over/under-provisioning"
-- "Configuration drift detection ensures reliability"
+- "Built-in workflow guidance (auto-fix → drift detection)"
 
 #### **Compliance & Security**
 - "85% compliance score with healthcare-grade policies"

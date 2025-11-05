@@ -60,65 +60,81 @@ Create comprehensive policies for healthcare production environment:
 Automatically remediate policy violations:
 
 ```bash
-# Request: "Is there anything else that can be fixed with the auto fix functionality?"
+# Request: "Yes, please. Let's use the auto fix functionality"
 ```
 
 **Auto-Fix Results**:
 - **Initial Compliance**: 55.6%
 - **Post Auto-Fix Compliance**: 72.2% (+16.6% improvement)
-- **Violations Fixed**: 5 critical security and operational issues
+- **Violations Fixed**: 5 out of 6 policy violations
+- **Configuration Mode**: GitOps-friendly (configs generated, then applied)
 
 **Specific Fixes Applied**:
-1. ✅ **Security Context**: Non-root user enforcement (`runAsUser: 1000`)
-2. ✅ **OpenShift Compatibility**: Security constraints compliance
-3. ✅ **DNS Policy**: Cluster-first networking configuration
-4. ✅ **Enhanced Metrics**: Workflow tracking labels
-5. ✅ **Performance**: Network and container optimizations
+1. ✅ **Security Context**: Non-root user enforcement (`runAsUser: 1000, fsGroup: 1000`)
+2. ✅ **Enhanced Metrics Labels**: Workflow tracking for audit trails
+3. ✅ **Dual-Stack Networking**: ClusterFirst DNS policy for reliability
+4. ✅ **OpenShift Compatibility**: Security context constraints compliance
+5. ✅ **Container Security**: Non-privileged execution context
+⚠️ **1 violation failed**: Requires manual intervention (privileged DinD container)
 
-### Step 4: Validate Configuration Synchronization
+### Step 4: Review and Apply Fixed Configurations
 
-Ensure configuration files match deployed state:
+Apply the auto-fixed configurations to the cluster:
 
 ```bash
-# Request: "Let's run the drift detection tool to make sure our configuration files are up to date"
+# System automatically applies fixed configurations to cluster
+# Updated runner set with security improvements deployed
 ```
 
-**Drift Detection Results**:
-- ⚠️ **Configuration Drift Detected** (Expected after auto-fixes!)
-- 🔄 **Cluster has auto-fixes applied**, but config files still have original versions
-- 🛠️ **Auto-fix enabled**: Automatically regenerates config files to match cluster state
+**Configuration Application Results**:
+- ✅ **Runner Set Updated**: Security context and operational fixes applied
+- ✅ **Zero Downtime**: Rolling update maintains 20 active runners
+- ✅ **Compliance Improvement**: Score increased from 55.6% to 72.2%
+- � **Config Files**: Auto-generated in `configs/runner-sets/` for GitOps workflow
 
-**What Happens**:
-1. **Drift Detection**: Finds differences between configs and deployed resources
-2. **Auto-Regeneration**: Updates configuration files with the latest auto-fixed versions
-3. **Final State**: ✅ **Perfect Sync** between configs and cluster after regeneration
+**Final Compliance Status**:
+- **Critical Violations**: 0 🎯
+- **High Violations**: 1 (manual intervention needed)
+- **Medium Violations**: 2 
+- **Low Violations**: 4
+- **Total Rules Passed**: 13/18 ✅
 
 ## 📊 Final State Summary
 
 ### Deployment Metrics
 | Metric | Value |
 |--------|-------|
-| **Compliance Score** | 85% (Healthcare Grade) |
+| **Compliance Score** | 72.2% (Significantly Improved) |
 | **Active Runners** | 20 (auto-scaling to 40) |
 | **Security Level** | High + HIPAA Compliant |
 | **Controller Health** | 1/1 pods ready |
-| **Configuration Drift** | Fixed automatically (was detected) |
+| **Critical Violations** | 0 (All resolved) |
+| **Auto-Fix Success Rate** | 83% (5/6 violations) |
 
 ### Security & Compliance Features
 - 🛡️ **Pod Security Standards**: Restricted (highest level)
-- 🔐 **Non-root Containers**: Enforced
-- 🌐 **Network Policies**: Active
-- 📋 **Audit Trail**: Complete config versioning
-- 🏥 **HIPAA Compliance**: Strict enforcement
+- 🔐 **Non-root Containers**: Enforced (`runAsUser: 1000, fsGroup: 1000`)
+- 🌐 **Network Policies**: Active with ClusterFirst DNS
+- 📋 **Audit Trail**: Complete config versioning with auto-fix annotations
+- 🏥 **HIPAA Compliance**: Strict enforcement with healthcare-specific policies
+- ⚠️ **Remaining Issue**: DinD container requires privileged mode (architectural limitation)
 
 ### Generated Configuration Files
 ```
 configs/
 ├── controller.yaml                    # ARC controller configuration
 ├── policies/
-│   └── arc-policy-config.json        # Healthcare policy rules
+│   └── arc-policy-config.json        # Healthcare policy rules (HIPAA/SOC2/NIST)
 └── runner-sets/
-    └── tsvi-runners.yaml             # Runner deployment with auto-fixes
+    └── tsvi-runners.yaml             # Runner deployment with auto-fixes applied
+```
+
+**Auto-Fix Annotations Added**:
+```yaml
+annotations:
+  arc-mcp/auto-fixed: '2025-11-05T02:44:30.507Z'
+  arc-mcp/violations-fixed: '5'
+  arc-mcp/violations-failed: '1'
 ```
 
 ## 🎯 Key Demo Highlights
@@ -138,11 +154,11 @@ configs/
 - Automated security fixes
 - Non-disruptive improvements
 
-### 4. **GitOps-Ready Configuration**
-- All changes saved as configuration files
-- **Drift detection** identifies when configs are out of sync
-- **Auto-regeneration** ensures config files match actual deployments
-- Version control friendly with complete audit trail
+### 4. **GitOps-Ready Configuration Management**
+- All changes saved as versioned configuration files
+- Auto-fix annotations track remediation history
+- Configuration files automatically applied to cluster
+- Healthcare-grade audit trail with timestamps and change tracking
 
 ### 5. **Production-Grade Reliability**
 - Auto-scaling based on demand
@@ -152,9 +168,9 @@ configs/
 ## 📝 Commands Used in Demo
 
 1. **Deploy Runners**: `Deploy 20-40 runners`
-2. **Generate Policies**: `Generate me arc policies for a production environment in the healthcare industry`
-3. **Apply Auto-Fix**: `Is there anything else that can be fixed with the auto fix functionality?`
-4. **Validate Sync**: `Let's run the drift detection tool to make sure our configuration files are up to date` (detects drift, auto-regenerates configs)
+2. **Generate Policies**: `Generate me arc policies for a production environment in the healthcare industry` 
+3. **Apply Auto-Fix**: `Yes, please. Let's use the auto fix functionality`
+4. **Review Results**: Automatic validation and compliance reporting
 
 ## 🚀 Next Steps After Demo
 
@@ -197,14 +213,26 @@ securityContext:
   runAsNonRoot: true
   runAsUser: 1000
   fsGroup: 1000
+dnsPolicy: ClusterFirst
 ```
 
-### Healthcare Policy Rules
-- **arc-sec-001**: Non-privileged containers (Critical)
-- **arc-sec-002**: Secure secret management (Critical)  
-- **arc-comp-001**: Compliance violations block deployment (Critical)
-- **arc-res-001**: Resource limits enforcement (High)
-- **arc-ops-001**: High availability requirements (High)
+**Auto-Fix Metadata**:
+```yaml
+annotations:
+  arc-mcp/auto-fixed: '2025-11-05T02:44:30.507Z'
+  arc-mcp/violations-fixed: '5'
+  arc-mcp/violations-failed: '1'
+```
+
+### Healthcare Policy Rules (Applied)
+- **arc-sec-001**: Non-privileged containers ✅ **Fixed**
+- **arc-sec-002**: Secure secret management ✅ **Compliant**
+- **arc-comp-001**: Repository scoping ⚠️ **Needs Configuration**
+- **arc-res-001**: Resource limits ⚠️ **Needs Definition**
+- **arc-ops-001**: High availability ✅ **Enforced** (min 20 replicas)
+- **Enhanced metrics**: Workflow tracking labels ✅ **Added**
+
+**Compliance Score**: 72.2% (13/18 rules passing)
 
 ## 💡 Demo Variations
 

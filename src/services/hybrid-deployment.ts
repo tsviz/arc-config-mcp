@@ -363,7 +363,56 @@ export class HybridDeploymentService {
     const warnings: string[] = [];
 
     try {
-      // Step 0: Check if configs directory exists (for non-direct mode)
+      // Step 0: CRITICAL - Check if ARC controller is installed before proceeding
+      this.services.logger.info('🔍 Verifying ARC controller installation...');
+      
+      try {
+        const status = await this.services.installer.getStatus();
+        
+        if (!status.controller?.installed) {
+          return {
+            success: false,
+            message: `❌ **ARC Controller not installed**\n\n` +
+                    `Runner deployments require the ARC Controller to be installed first.\n` +
+                    `The controller provides the necessary Custom Resource Definitions (CRDs) for AutoscalingRunnerSet resources.\n\n` +
+                    `### 🔧 **Solution:**\n\n` +
+                    `**Step 1:** Install the ARC controller first:\n` +
+                    `\`\`\`\n` +
+                    `#arc_install_controller_hybrid --apply true\n` +
+                    `\`\`\`\n\n` +
+                    `**Step 2:** Then deploy runners:\n` +
+                    `\`\`\`\n` +
+                    `#arc_deploy_runners_hybrid --apply true --minRunners ${params.minRunners || params.minReplicas || 20} --maxRunners ${params.maxRunners || params.maxReplicas || 40}\n` +
+                    `\`\`\`\n\n` +
+                    `### 📋 **Technical Details:**\n` +
+                    `Without the controller, Kubernetes cannot recognize the \`AutoscalingRunnerSet\` resource type, causing the error:\n` +
+                    `\`no matches for kind "AutoscalingRunnerSet" in version "actions.github.com/v1alpha1"\``,
+            warnings: ['ARC Controller must be installed before deploying runners']
+          };
+        }
+        
+        if (status.controller.status !== 'Healthy') {
+          warnings.push(`Controller status is '${status.controller.status}' - deployment may fail if controller is not ready`);
+        }
+        
+        this.services.logger.info(`✅ ARC controller verified: ${status.controller.readyPods}/${status.controller.pods} pods ready`);
+        
+      } catch (statusError) {
+        return {
+          success: false,
+          message: `❌ **Failed to verify ARC controller status**\n\n` +
+                  `Cannot determine if the ARC controller is installed. This usually indicates:\n` +
+                  `- Controller is not installed\n` +
+                  `- Kubernetes cluster is not accessible\n` +
+                  `- kubectl is not configured properly\n\n` +
+                  `**Error:** ${statusError instanceof Error ? statusError.message : String(statusError)}\n\n` +
+                  `**Solution:** Install the controller first with:\n` +
+                  `\`#arc_install_controller_hybrid --apply true\``,
+          warnings: ['Controller status check failed']
+        };
+      }
+
+      // Step 1: Check if configs directory exists (for non-direct mode)
       if (mode !== 'direct') {
         try {
           const fs = await import('fs/promises');

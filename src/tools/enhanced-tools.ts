@@ -501,6 +501,56 @@ To deploy 20 runners with auto-scaling, you can say:
         async (params: any) => {
             services.logger.info('🔄 Scaling ARC runners with AI optimization', params);
             
+            // CRITICAL: Check if ARC controller is installed before proceeding
+            try {
+                const status = await services.installer.getStatus();
+                
+                if (!status.controller?.installed) {
+                    return {
+                        content: [{
+                            type: 'text',
+                            text: `❌ **ARC Controller not installed**\n\n` +
+                                  `Runner scaling requires the ARC Controller to be installed first.\n` +
+                                  `The controller provides the necessary Custom Resource Definitions (CRDs) for AutoscalingRunnerSet resources.\n\n` +
+                                  `### 🔧 **Solution:**\n\n` +
+                                  `**Step 1:** Install the ARC controller first:\n` +
+                                  `\`\`\`\n` +
+                                  `#arc_install_controller_hybrid --apply true\n` +
+                                  `\`\`\`\n\n` +
+                                  `**Step 2:** Deploy runners first:\n` +
+                                  `\`\`\`\n` +
+                                  `#deploy_github_runners --minReplicas 20 --maxReplicas 40\n` +
+                                  `\`\`\`\n\n` +
+                                  `**Step 3:** Then scale runners:\n` +
+                                  `\`\`\`\n` +
+                                  `#arc_scale_runners --replicas ${params.replicas || params.maxReplicas || 30}\n` +
+                                  `\`\`\`\n\n` +
+                                  `### 📋 **Technical Details:**\n` +
+                                  `Without the controller, Kubernetes cannot recognize the \`AutoscalingRunnerSet\` resource type.`
+                        }]
+                    };
+                }
+                
+                if (status.controller.status !== 'Healthy') {
+                    services.logger.warn(`Controller status is '${status.controller.status}' - scaling may encounter issues`);
+                }
+                
+            } catch (statusError) {
+                return {
+                    content: [{
+                        type: 'text',
+                        text: `❌ **Failed to verify ARC controller status**\n\n` +
+                              `Cannot determine if the ARC controller is installed. This usually indicates:\n` +
+                              `- Controller is not installed\n` +
+                              `- Kubernetes cluster is not accessible\n` +
+                              `- kubectl is not configured properly\n\n` +
+                              `**Error:** ${statusError instanceof Error ? statusError.message : String(statusError)}\n\n` +
+                              `**Solution:** Install the controller first with:\n` +
+                              `\`#arc_install_controller_hybrid --apply true\``
+                    }]
+                };
+            }
+            
             // IMMEDIATE OVERRIDE: Force GITHUB_ORG before any other processing
             if (process.env.GITHUB_ORG) {
                 const originalOrg = params.organization;
@@ -1159,6 +1209,79 @@ To deploy 20 runners with auto-scaling, you can say:
                 
                 // Debug logging to track organization resolution
                 services.logger.info(`Organization resolution complete: GITHUB_ORG="${process.env.GITHUB_ORG}", params.organization="${params.organization}", final="${organization}"`);
+                
+                // CRITICAL: Check if ARC controller is installed before proceeding
+                progressReporter.updateProgress({
+                    phase: 'Controller Verification',
+                    progress: 10,
+                    message: 'Verifying ARC controller installation...',
+                    timestamp: new Date().toISOString(),
+                    aiInsight: 'Checking if ARC controller is installed and ready to manage runners'
+                });
+                
+                try {
+                    const status = await services.installer.getStatus();
+                    
+                    if (!status.controller?.installed) {
+                        progressReporter.error(`❌ **ARC Controller not installed**\n\n` +
+                            `Runner deployments require the ARC Controller to be installed first.\n` +
+                            `The controller provides the necessary Custom Resource Definitions (CRDs) for AutoscalingRunnerSet resources.\n\n` +
+                            `### 🔧 **Solution:**\n\n` +
+                            `**Step 1:** Install the ARC controller first:\n` +
+                            `\`\`\`\n` +
+                            `#arc_install_controller_hybrid --apply true\n` +
+                            `\`\`\`\n\n` +
+                            `**Step 2:** Then deploy runners:\n` +
+                            `\`\`\`\n` +
+                            `#deploy_github_runners --minReplicas ${params.minReplicas || 20} --maxReplicas ${params.maxReplicas || 40} --organization ${organization}\n` +
+                            `\`\`\`\n\n` +
+                            `### 📋 **Technical Details:**\n` +
+                            `Without the controller, Kubernetes cannot recognize the \`AutoscalingRunnerSet\` resource type, causing the error:\n` +
+                            `\`no matches for kind "AutoscalingRunnerSet" in version "actions.github.com/v1alpha1"\``);
+                        
+                        return {
+                            content: [{
+                                type: 'text',
+                                text: progressUpdates.join('\n')
+                            }]
+                        };
+                    }
+                    
+                    if (status.controller.status !== 'Healthy') {
+                        progressReporter.updateProgress({
+                            phase: 'Controller Verification',
+                            progress: 12,
+                            message: `Controller status is '${status.controller.status}' - proceeding with caution...`,
+                            timestamp: new Date().toISOString(),
+                            aiInsight: 'Controller detected but not fully healthy - deployment may encounter issues'
+                        });
+                    } else {
+                        progressReporter.updateProgress({
+                            phase: 'Controller Verification',
+                            progress: 15,
+                            message: `✅ ARC controller verified: ${status.controller.readyPods}/${status.controller.pods} pods ready`,
+                            timestamp: new Date().toISOString(),
+                            aiInsight: 'Controller is healthy and ready to manage runner deployments'
+                        });
+                    }
+                    
+                } catch (statusError) {
+                    progressReporter.error(`❌ **Failed to verify ARC controller status**\n\n` +
+                        `Cannot determine if the ARC controller is installed. This usually indicates:\n` +
+                        `- Controller is not installed\n` +
+                        `- Kubernetes cluster is not accessible\n` +
+                        `- kubectl is not configured properly\n\n` +
+                        `**Error:** ${statusError instanceof Error ? statusError.message : String(statusError)}\n\n` +
+                        `**Solution:** Install the controller first with:\n` +
+                        `\`#arc_install_controller_hybrid --apply true\``);
+                    
+                    return {
+                        content: [{
+                            type: 'text',
+                            text: progressUpdates.join('\n')
+                        }]
+                    };
+                }
                 
                 // Skip existing deployment detection if GITHUB_ORG is set
                 if (!process.env.GITHUB_ORG && (!organization && !process.env.GITHUB_ORG)) {
@@ -3090,13 +3213,19 @@ ${result.failed > 0 ? `⚠️ **${result.failed} fix(es) failed** - manual inter
    \`\`\`
    Use #arc_validate_policies with operation=report
    \`\`\`
-3. **Commit** the config files to Git for audit trail:
+3. **🔄 Recommended: Run drift detection** to sync config files with cluster state:
+   \`\`\`
+   Use #arc_detect_drift to ensure configs match the auto-fixed cluster state
+   \`\`\`
+4. **Commit** the config files to Git for audit trail:
    \`\`\`bash
    git add configs/runner-sets/
    git commit -m "fix: apply policy auto-fixes to runners"
    \`\`\`
 
 ✅ **Fixes applied to cluster** - config files saved in \`configs/\` for audit trail!
+
+💡 **Pro Tip**: Auto-fixes update the cluster but may create drift with your config files. Running drift detection ensures your GitOps workflow stays synchronized.
 ` : `# 📝 Policy Auto-Fix: Config Generation Mode
 
 > **Mode**: Configs-Only (GitOps/Hybrid workflow)  
@@ -3143,6 +3272,10 @@ ${result.failed > 0 ? `⚠️ **${result.failed} fix(es) failed** - manual inter
        return `   Use #arc_apply_config with configType=runnerSet, name=${name}`;
    }).join('\n')}
 4. **Validate**: \`Use #arc_validate_policies with operation=report\`
+5. **🔄 After applying: Run drift detection** to ensure config files stay synchronized:
+   \`\`\`
+   Use #arc_detect_drift to sync config files with cluster state
+   \`\`\`
 
 💡 **Config files saved in \`configs/\`** - ready for review and Git commit!
 

@@ -39,6 +39,7 @@ Transform complex ARC tasks into simple conversations:
 - **Intelligent Installation**: Zero-configuration ARC deployment with smart defaults
 - **Real-time Monitoring**: Live status dashboards and proactive health monitoring
 - **Enterprise Security**: Built-in policy validation and compliance enforcement with 20+ security rules
+- **🔄 Guided Workflows**: Auto-fix tool now prompts for drift detection to maintain GitOps sync
 - **Automated Policy Remediation**: Auto-fix feature generates corrected configs for 6+ common violations
 - **Compliance Reporting**: Generate SOC2/enterprise compliance reports with scoring and recommendations
 - **Cost Intelligence**: Automatic scaling and resource optimization
