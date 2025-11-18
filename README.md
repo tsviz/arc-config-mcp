@@ -17,6 +17,104 @@
 
 ARC Config MCP Server is an enterprise-grade automation tool that bridges the gap between complex Kubernetes-based GitHub Actions runner management and intuitive AI-powered operations. Instead of memorizing kubectl commands and YAML configurations, simply tell the AI what you want to accomplish.
 
+### 🛠️ Architecture Flow Diagram
+
+<details>
+  <summary><strong>Click to expand: Full ARC MCP Server Data/Process Flow</strong></summary>
+
+```mermaid
+flowchart TD
+    %% Entry Points
+    ClientChat["Copilot Chat"]
+    ClientAPI["REST API"]
+    ClientCLI["CLI/Script"]
+    ClientChat --> MCPServer
+    ClientAPI --> MCPServer
+    ClientCLI --> MCPServer
+
+    %% NLP/Natural Language
+    subgraph "Natural Language"
+        NLPMapper["Natural Language Mapper (arc_process_natural_language)"]
+    end
+    ClientChat --> NLPMapper
+    NLPMapper --> ToolRouter
+
+    %% MCP Core Routing
+    MCPServer --> ToolRouter["Tool Router"]
+
+    %% Tool Registry and Registration
+    ToolRouter --> ToolRegistry["Tool Registry (registerTool: arc_install_controller/arc_scale_runners/etc)"]
+    ToolRegistry --> ToolHandler["Tool Handler (async for each tool)"]
+    NewTool["Add Tool via registerTool()"] --> ToolRegistry
+
+    %% Input Validation
+    ToolHandler --> InputValidation["Input Validation (zod schema)"]
+    InputValidation -->|Valid| ToolExec["Tool Execution (Business Logic)"]
+    InputValidation -->|Invalid| ErrorHandling["Return Error + Troubleshooting to Client"]
+
+    %% Service Context
+    subgraph "Service Context"
+        KubeClient["Kubernetes API Client"]
+        GitHubClient["GitHub API Client"]
+        InstallerService["ARC Installer/Manager"]
+        PolicyEngine["Policy Engine (security, compliance, cost, performance)"]
+        ConfigManager["Config File Manager (for GitOps/Hybrid workflows)"]
+        Logger["Logging & Audit"]
+        ProgressReporter["Progress/Status Reporter (chat-aware)"]
+    end
+    ToolExec --> KubeClient
+    ToolExec --> GitHubClient
+    ToolExec --> InstallerService
+    ToolExec --> PolicyEngine
+    ToolExec --> ConfigManager
+    ToolExec --> Logger
+    ToolExec --> ProgressReporter
+
+    %% Deterministic Execution / Operations
+    ToolExec --> MCPAction["MCP Operation (Install, Scale, Deploy, Status, Cleanup, Validate, etc.)"]
+    MCPAction -->|State Change| ClusterState["Kubernetes/ARC State Change"]
+    MCPAction --> StructuredResult["Structured Result/Report"]
+    StructuredResult --> ProgressReporter
+
+    %% Feedback to User
+    ProgressReporter --> ClientResponse["Real-time Updates, Dashboards, Recommendations to Client/Chat"]
+    ErrorHandling --> ClientResponse
+
+    %% GitOps/Config Workflow
+    ConfigManager --> ConfigFiles["Auto-generate YAML/config files"]
+    ConfigFiles --> GitAuditTrail["Versioned Git Audit Trail"]
+    ConfigFiles --> ApplyToCluster["Apply Configs to Cluster"]
+    ConfigManager --> DriftDetection["Drift Detection (Compare Git state vs Cluster)"]
+
+    %% Policy/Compliance Flow
+    PolicyEngine --> ComplianceReport["Compliance/Policy Report"]
+    ComplianceReport --> ClientResponse
+    PolicyEngine --> AutoFix["Auto-fix Violations (optional/apply mode)"]
+    AutoFix --> ConfigFiles
+
+    %% Logging/Audit Flow
+    Logger --> Logs["System Logs & Audit Reports"]
+    Logs --> ClientResponse
+
+    %% Extensibility / Modular Design
+    NewTool --> ToolRegistry
+
+    %% Annotations
+    classDef entrypoint fill:#f5faff,stroke:#3f51b5,stroke-width:2px;
+    classDef core fill:#e3f2fd,stroke:#1976d2,stroke-width:2px;
+    classDef service fill:#f9fbe7,stroke:#8bc34a,stroke-width:2px;
+    classDef process fill:#e1f5fe,stroke:#039be5,stroke-width:2px;
+    classDef feedback fill:#fff9c4,stroke:#fbc02d,stroke-width:2px;
+    classDef gitops fill:#ffecb3,stroke:#795548,stroke-width:2px;
+
+    class ClientChat,ClientAPI,ClientCLI entrypoint;
+    class MCPServer,ToolRouter,ToolRegistry,ToolHandler,InputValidation,ToolExec,ErrorHandling,StructuredResult,NewTool core;
+    class KubeClient,GitHubClient,InstallerService,PolicyEngine,ConfigManager,Logger,ProgressReporter service;
+    class MCPAction,ClusterState,ComplianceReport,AutoFix process;
+    class ProgressReporter,ClientResponse,ConfigFiles,ApplyToCluster,GitAuditTrail,Logs,DriftDetection feedback;
+```
+</details>
+
 **🆕 NOW SUPPORTS ARC 0.13.0** with advanced container modes, dual-stack networking, Azure Key Vault integration, and OpenShift support!
 
 ## 🌟 Key Features
